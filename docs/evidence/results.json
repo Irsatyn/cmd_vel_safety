@@ -1,0 +1,75 @@
+{
+  "checks": {
+    "normal_motion": true,
+    "over_limit_intervention": true,
+    "reverse_motion": true,
+    "watchdog_stops": true,
+    "invalid_input_hold_stops": true,
+    "hard_estop_zero": true,
+    "release_waits_for_fresh_command": true,
+    "fresh_command_resumes": true,
+    "deadband_final_stop": true,
+    "all_11_safety_flags_observed": true,
+    "all_outputs_within_envelope": true,
+    "motion_and_odometry_received": true
+  },
+  "passed": true,
+  "report_count": 1049,
+  "flags_seen": 2047,
+  "phases": [
+    {
+      "end": 4,
+      "title": "Startup / zero command"
+    },
+    {
+      "end": 10,
+      "title": "Normal motion"
+    },
+    {
+      "end": 16,
+      "title": "Over-limit command + unexecutable DOF"
+    },
+    {
+      "end": 21,
+      "title": "Reverse with controlled cross-zero transition"
+    },
+    {
+      "end": 26,
+      "title": "Input dropout: independent watchdog braking"
+    },
+    {
+      "end": 30,
+      "title": "Resume with fresh command"
+    },
+    {
+      "end": 34,
+      "title": "NaN / Inf: persistent-invalid safety hold"
+    },
+    {
+      "end": 38,
+      "title": "Valid-input recovery"
+    },
+    {
+      "end": 42,
+      "title": "Emergency stop (Reliable + TransientLocal)"
+    },
+    {
+      "end": 45,
+      "title": "Release e-stop; withhold fresh command"
+    },
+    {
+      "end": 50,
+      "title": "Fresh command after e-stop release"
+    },
+    {
+      "end": 54,
+      "title": "Deadband command / final stop"
+    },
+    {
+      "end": 58,
+      "title": "Shutdown / verified results"
+    }
+  ],
+  "source_commit": "9e194f1eec8374a23dda62ebd156dcf89eaec526",
+  "ros_domain_id": "181"
+}

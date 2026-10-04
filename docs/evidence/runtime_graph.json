@@ -1,0 +1,66 @@
+{
+  "/cmd_vel": {
+    "publishers": [
+      "/demo_evidence_driver"
+    ],
+    "subscribers": [
+      "/motion_state_monitor",
+      "/velocity_guard"
+    ]
+  },
+  "/cmd_vel_safe": {
+    "publishers": [
+      "/velocity_guard"
+    ],
+    "subscribers": [
+      "/motion_state_monitor",
+      "/virtual_robot"
+    ]
+  },
+  "/e_stop": {
+    "publishers": [
+      "/demo_evidence_driver"
+    ],
+    "subscribers": [
+      "/velocity_guard"
+    ]
+  },
+  "/velocity_guard/report": {
+    "publishers": [
+      "/velocity_guard"
+    ],
+    "subscribers": [
+      "/motion_state_monitor",
+      "/demo_evidence_driver"
+    ]
+  },
+  "/odom": {
+    "publishers": [
+      "/virtual_robot"
+    ],
+    "subscribers": [
+      "/motion_state_monitor",
+      "/demo_evidence_driver"
+    ]
+  },
+  "/robot_motion_state": {
+    "publishers": [
+      "/motion_state_monitor"
+    ],
+    "subscribers": [
+      "/demo_evidence_driver"
+    ]
+  },
+  "/robot_status": {
+    "publishers": [
+      "/motion_state_monitor"
+    ],
+    "subscribers": []
+  },
+  "/diagnostics": {
+    "publishers": [
+      "/motion_state_monitor"
+    ],
+    "subscribers": []
+  }
+}

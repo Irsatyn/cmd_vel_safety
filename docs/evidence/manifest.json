@@ -1,0 +1,56 @@
+{
+  "recorded_date": "2026-10-04",
+  "environment": "Linux-6.18.33.2-microsoft-standard-WSL2-x86_64-with-glibc2.35",
+  "ros": "Humble",
+  "rmw": "rmw_cyclonedds_cpp",
+  "ros_domain_id": 181,
+  "video": {
+    "codec": "H.264",
+    "container": "MP4",
+    "fps": 10.0,
+    "decoded_frames": 581,
+    "duration_seconds": 58.1,
+    "width": 1280,
+    "height": 940,
+    "audio": false
+  },
+  "capture": "Live Qt application window frames; real ROS messages and embedded rqt_graph",
+  "files": {
+    "final_state.png": {
+      "bytes": 146460,
+      "sha256": "26926e95c22a73a9418ca0a9b1f825668b673062496ea3abc9b87c50d9a2e3d0"
+    },
+    "full_run.mp4": {
+      "bytes": 954652,
+      "sha256": "86cf3581b299256e678610dafc13ca046c8c535bb14927ee1fc26a90121fcd32"
+    },
+    "launch.log": {
+      "bytes": 7302,
+      "sha256": "ad981337f06523b227a5fbdf9f1606e6cd04488b9ca6a1ae39acda3d38df031f"
+    },
+    "preview.png": {
+      "bytes": 424181,
+      "sha256": "c3baca25806daa808675a2087de2e70071390d74de8548cfc9d72147781857c8"
+    },
+    "reports.jsonl": {
+      "bytes": 222241,
+      "sha256": "c3134b839527746c9117c5eb95acbad4c27475bb6b76f1dee68d5f60e98c93eb"
+    },
+    "results.json": {
+      "bytes": 1655,
+      "sha256": "54413392aa2b562bcdfc0a1f7c4f8a3a615451801a8a9a3467e52cda52e72056"
+    },
+    "rqt_graph.dot": {
+      "bytes": 11154,
+      "sha256": "2b7314923035d8c721823d1a07a6b13a583361bbfef7dea9b21e7097d5c42e7e"
+    },
+    "rqt_graph.png": {
+      "bytes": 73021,
+      "sha256": "efca8af5d8cb007e7f35dde6ac6f30dc7d0a7fee4ba4025ce79d59c3b1a35c22"
+    },
+    "runtime_graph.json": {
+      "bytes": 1133,
+      "sha256": "f2a4013acd897d015e35ca44bd14313140d127cc01263f7d08af85f1994e2eaa"
+    }
+  }
+}

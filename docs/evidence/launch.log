@@ -1,0 +1,59 @@
+[INFO] [launch]: All log files can be found below /tmp/submission-demo-run1/ros_logs/2026-10-04-22-22-02-384844-LAPTOP-CUK7TKNB-83279
+[INFO] [launch]: Default logging verbosity is set to INFO
+[INFO] [velocity_guard-1]: process started with pid [83280]
+[INFO] [virtual_robot-2]: process started with pid [83282]
+[INFO] [motion_state_monitor-3]: process started with pid [83284]
+[velocity_guard-1] [0m[INFO] [1791123722.627951588] [velocity_guard]: velocity_guard up: /cmd_vel -> /cmd_vel_safe @ 20.0 Hz | v in [-0.30, 1.00] m/s, |w| <= 1.50 rad/s, accel <= 0.80 m/s^2, timeout 0.50 s[0m
+[motion_state_monitor-3] [0m[INFO] [1791123722.659776156] [motion_state_monitor]: motion_state_monitor up @ 5.0 Hz[0m
+[virtual_robot-2] [0m[INFO] [1791123722.680544748] [virtual_robot]: virtual_robot up @ 50 Hz (tau_v=0.150 s, tau_w=0.100 s, own watchdog 0.50 s)[0m
+[virtual_robot-2] [33m[WARN] [1791123722.700670604] [virtual_robot]: no command on the safe topic for 0.50 s: base stopping itself[0m
+[virtual_robot-2] [0m[INFO] [1791123722.740717731] [virtual_robot]: command stream restored[0m
+[motion_state_monitor-3] [0m[INFO] [1791123725.260012756] [motion_state_monitor]: motion state -> FORWARD[0m
+[velocity_guard-1] [33m[WARN] [1791123731.082023284] [velocity_guard]: large jump in /cmd_vel (v=1.800 w=2.000): output held for one frame; it is adopted if the next frame confirms it, discarded as a spike otherwise[0m
+[velocity_guard-1] [33m[WARN] [1791123731.082084114] [velocity_guard]: /cmd_vel requests unexecutable DOF (ly=0.200 lz=0.000 ax=0.000 ay=0.000) on a differential-drive base: projected to zero[0m
+[velocity_guard-1] [33m[WARN] [1791123731.278423361] [velocity_guard]: command outside the kinematic envelope: target (v=1.000 w=1.200) -> output (v=0.340 w=0.100)[0m
+[motion_state_monitor-3] [0m[INFO] [1791123731.459953324] [motion_state_monitor]: motion state -> ARC_LEFT[0m
+[velocity_guard-1] [33m[WARN] [1791123733.181790262] [velocity_guard]: /cmd_vel requests unexecutable DOF (ly=0.200 lz=0.000 ax=0.000 ay=0.000) on a differential-drive base: projected to zero[0m
+[velocity_guard-1] [33m[WARN] [1791123733.328621679] [velocity_guard]: command outside the kinematic envelope: target (v=1.000 w=1.200) -> output (v=1.000 w=1.200)[0m
+[velocity_guard-1] [33m[WARN] [1791123735.182097895] [velocity_guard]: /cmd_vel requests unexecutable DOF (ly=0.200 lz=0.000 ax=0.000 ay=0.000) on a differential-drive base: projected to zero[0m
+[velocity_guard-1] [33m[WARN] [1791123735.378254741] [velocity_guard]: command outside the kinematic envelope: target (v=1.000 w=1.200) -> output (v=1.000 w=1.200)[0m
+[velocity_guard-1] [33m[WARN] [1791123737.131289081] [velocity_guard]: large jump in /cmd_vel (v=-0.200 w=-0.800): output held for one frame; it is adopted if the next frame confirms it, discarded as a spike otherwise[0m
+[motion_state_monitor-3] [0m[INFO] [1791123737.859913643] [motion_state_monitor]: motion state -> ARC_RIGHT[0m
+[motion_state_monitor-3] [0m[INFO] [1791123738.059982684] [motion_state_monitor]: motion state -> TURN_IN_PLACE[0m
+[motion_state_monitor-3] [0m[INFO] [1791123738.259885679] [motion_state_monitor]: motion state -> ARC_RIGHT[0m
+[velocity_guard-1] [33m[WARN] [1791123742.578482433] [velocity_guard]: /cmd_vel timed out after 0.50 s: braking to zero and resetting the target[0m
+[motion_state_monitor-3] [0m[INFO] [1791123742.860015032] [motion_state_monitor]: motion state -> BRAKING[0m
+[motion_state_monitor-3] [0m[INFO] [1791123743.059932635] [motion_state_monitor]: motion state -> SIGNAL_LOST[0m
+[velocity_guard-1] [0m[INFO] [1791123747.128323942] [velocity_guard]: /cmd_vel stream recovered: ramping up from standstill[0m
+[motion_state_monitor-3] [0m[INFO] [1791123747.259881314] [motion_state_monitor]: motion state -> FORWARD[0m
+[velocity_guard-1] [31m[ERROR] [1791123751.081317225] [velocity_guard]: non-finite /cmd_vel received (lx=nan ly=0.000000 lz=0.000000 ax=0.000000 ay=0.000000 az=0.000000): frame dropped[0m
+[velocity_guard-1] [31m[ERROR] [1791123751.578293804] [velocity_guard]: safety hold: 5 consecutive invalid commands, braking to zero[0m
+[motion_state_monitor-3] [0m[INFO] [1791123751.660010273] [motion_state_monitor]: motion state -> SAFETY_HOLD[0m
+[velocity_guard-1] [31m[ERROR] [1791123753.131470523] [velocity_guard]: non-finite /cmd_vel received (lx=nan ly=0.000000 lz=0.000000 ax=0.000000 ay=0.000000 az=0.000000): frame dropped[0m
+[velocity_guard-1] [0m[INFO] [1791123755.728157488] [velocity_guard]: safety hold released: upstream is valid again[0m
+[motion_state_monitor-3] [0m[INFO] [1791123755.860011202] [motion_state_monitor]: motion state -> TURN_IN_PLACE[0m
+[motion_state_monitor-3] [0m[INFO] [1791123756.059875983] [motion_state_monitor]: motion state -> ARC_LEFT[0m
+[velocity_guard-1] [31m[ERROR] [1791123759.081731404] [velocity_guard]: EMERGENCY STOP engaged: output forced to zero[0m
+[motion_state_monitor-3] [0m[INFO] [1791123759.259934228] [motion_state_monitor]: motion state -> EMERGENCY_STOP[0m
+[velocity_guard-1] [33m[WARN] [1791123763.181123584] [velocity_guard]: emergency stop released: target reset to zero, a fresh command is required to move[0m
+[motion_state_monitor-3] [0m[INFO] [1791123763.259934424] [motion_state_monitor]: motion state -> IDLE[0m
+[velocity_guard-1] [33m[WARN] [1791123763.578907949] [velocity_guard]: /cmd_vel timed out after 0.50 s: braking to zero and resetting the target[0m
+[motion_state_monitor-3] [0m[INFO] [1791123764.059886669] [motion_state_monitor]: motion state -> SIGNAL_LOST[0m
+[velocity_guard-1] [0m[INFO] [1791123766.228206933] [velocity_guard]: /cmd_vel stream recovered: ramping up from standstill[0m
+[motion_state_monitor-3] [0m[INFO] [1791123766.259948720] [motion_state_monitor]: motion state -> IDLE[0m
+[motion_state_monitor-3] [0m[INFO] [1791123766.460040520] [motion_state_monitor]: motion state -> ARC_RIGHT[0m
+[motion_state_monitor-3] [0m[INFO] [1791123771.459909451] [motion_state_monitor]: motion state -> BRAKING[0m
+[motion_state_monitor-3] [0m[INFO] [1791123771.660513809] [motion_state_monitor]: motion state -> IDLE[0m
+[WARNING] [launch]: user interrupted with ctrl-c (SIGINT)
+[INFO] [motion_state_monitor-3]: sending signal 'SIGINT' to process[motion_state_monitor-3]
+[INFO] [virtual_robot-2]: sending signal 'SIGINT' to process[virtual_robot-2]
+[INFO] [velocity_guard-1]: sending signal 'SIGINT' to process[velocity_guard-1]
+[motion_state_monitor-3] [0m[INFO] [1791123775.116804663] [rclcpp]: signal_handler(SIGINT/SIGTERM)[0m
+[virtual_robot-2] [0m[INFO] [1791123775.116853201] [rclcpp]: signal_handler(SIGINT/SIGTERM)[0m
+[velocity_guard-1] [0m[INFO] [1791123775.116977868] [rclcpp]: signal_handler(SIGINT/SIGTERM)[0m
+[motion_state_monitor-3] [0m[INFO] [1791123775.118651602] [rclcpp]: signal_handler(SIGINT/SIGTERM)[0m
+[velocity_guard-1] [0m[INFO] [1791123775.119275957] [rclcpp]: signal_handler(SIGINT/SIGTERM)[0m
+[virtual_robot-2] [0m[INFO] [1791123775.119549809] [rclcpp]: signal_handler(SIGINT/SIGTERM)[0m
+[INFO] [motion_state_monitor-3]: process has finished cleanly [pid 83284]
+[INFO] [virtual_robot-2]: process has finished cleanly [pid 83282]
+[INFO] [velocity_guard-1]: process has finished cleanly [pid 83280]

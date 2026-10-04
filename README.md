@@ -4,6 +4,8 @@
 
 项目在上游 `/cmd_vel` 与底盘之间加入 `velocity_guard`，对原始速度指令进行校验、限幅和加减速限制，并在指令超时、持续非法输入或急停时输出停车指令。配套的虚拟底盘与独立监控节点支持无硬件演示、rosbag 回放和离线验证。
 
+交付仓库：[Irsatyn/cmd_vel_safety](https://github.com/Irsatyn/cmd_vel_safety)。运行证据、完整录屏与复现方法见 [运行证据](#运行证据)，AI 辅助范围见 [AI 使用说明](#ai-使用说明)。
+
 ## 功能
 
 - **输入校验**：拒绝 NaN / Inf，识别不可执行自由度，通过后续帧确认大幅跳变，过滤孤立毛刺。
@@ -22,6 +24,8 @@
 - [参数配置](#参数配置)
 - [急停与 QoS](#急停与-qos)
 - [测试与验证](#测试与验证)
+- [运行证据](#运行证据)
+- [AI 使用说明](#ai-使用说明)
 - [常见问题](#常见问题)
 - [项目结构](#项目结构)
 - [开发与文档](#开发与文档)
@@ -123,16 +127,18 @@ ros2 topic echo /robot_status
 
 ### 主要接口
 
-| Topic | 消息类型 | 用途 |
-| --- | --- | --- |
-| `/cmd_vel` | `geometry_msgs/msg/Twist` | 原始速度输入 |
-| `/e_stop` | `std_msgs/msg/Bool` | 急停置位 / 解除 |
-| `/cmd_vel_safe` | `geometry_msgs/msg/Twist` | 底盘执行的速度指令 |
-| `/velocity_guard/report` | `cmd_vel_safety_msgs/msg/SafetyReport` | 逐周期安全处理记录 |
-| `/odom` | `nav_msgs/msg/Odometry` | 实际或模拟的运动反馈 |
-| `/robot_motion_state` | `cmd_vel_safety_msgs/msg/MotionState` | 运动状态与链路健康 |
-| `/robot_status` | `std_msgs/msg/String` | 人可读状态 |
-| `/diagnostics` | `diagnostic_msgs/msg/DiagnosticArray` | ROS 诊断信息 |
+| Topic | 消息类型 | 发布者 → 订阅者 | 用途 |
+| --- | --- | --- | --- |
+| `/cmd_vel` | `geometry_msgs/msg/Twist` | 上游 / rosbag → 网关、监控 | 原始速度输入 |
+| `/e_stop` | `std_msgs/msg/Bool` | 急停控制端 → 网关 | 急停置位 / 解除 |
+| `/cmd_vel_safe` | `geometry_msgs/msg/Twist` | 网关 → 底盘、监控 | 底盘执行的速度指令 |
+| `/velocity_guard/report` | `cmd_vel_safety_msgs/msg/SafetyReport` | 网关 → 监控、观测工具 | 逐周期安全处理记录 |
+| `/odom` | `nav_msgs/msg/Odometry` | 底盘 → 监控、观测工具 | 实际或模拟的运动反馈 |
+| `/robot_motion_state` | `cmd_vel_safety_msgs/msg/MotionState` | 监控 → 用户程序 | 运动状态与链路健康 |
+| `/robot_status` | `std_msgs/msg/String` | 监控 → 终端 / 用户程序 | 人可读状态 |
+| `/diagnostics` | `diagnostic_msgs/msg/DiagnosticArray` | 监控 → 诊断工具 | ROS 诊断信息 |
+
+辅助接口：虚拟底盘发布 `/tf`；bag 回放发布 `/clock`，开启 `use_sim_time` 的节点以其作为时间基准。
 
 差速底盘输出仅使用 `linear.x` 与 `angular.z`。安全报告包含同一控制周期对应的 `input_cmd`、`target_cmd`、`output_cmd` 和节点时钟时间戳，便于定位干预原因与校验输出变化。
 
@@ -191,11 +197,13 @@ ros2 launch cmd_vel_safety bringup.launch.py enable_virtual_robot:=false
 | `max_angular_z` | `1.5` | 角速度幅值上限，rad/s |
 | `max_linear_accel` / `max_linear_decel` | `0.8` / `1.5` | 线加速 / 减速上限，m/s² |
 | `max_angular_accel` / `max_angular_decel` | `2.0` / `3.0` | 角加速 / 减速上限，rad/s² |
-| `max_lateral_accel` | `1.2` | 目标速度的横向加速度上限 `abs(v * ω)`，m/s² |
+| `max_lateral_accel` | `1.2` | 目标及最终输出的横向加速度上限 `abs(v * ω)`，m/s² |
 | `cmd_timeout` | `0.5` | 原始指令超时时间，s |
 | `max_consecutive_invalid` | `5` | 进入非法输入安全保持的连续帧数 |
 | `emergency_decel_factor` | `2.0` | 超时 / 安全保持时的减速倍率 |
 | `estop_hard_stop` | `true` | 急停时直接将输出指令归零 |
+
+监控节点的关键参数：`publish_rate_hz=5.0` 控制状态发布频率，`signal_lost_timeout=1.0` 判定原始指令及安全指令新鲜度，`odom_stale_timeout=1.0` 判定反馈失效，`tracking_error_warn=0.15` 控制线速度跟踪误差告警阈值。虚拟底盘使用 `update_rate_hz=50.0`、`linear_time_constant=0.15`、`angular_time_constant=0.10` 模拟电机响应，并用自己的 `cmd_timeout=0.5` 实现独立停车保护。
 
 使用自定义配置文件启动：
 
@@ -284,6 +292,29 @@ ros2 run cmd_vel_safety check_bag.py /tmp/cmd_vel_safety_run \
 
 历史验证记录见 [docs/scenario.md](docs/scenario.md)：回放覆盖 11 类安全标志中的 8 类；死区、持续非法输入和急停另有在线测试记录。该文档保存既有实测数据，新环境的结果请通过上述命令复核。
 
+## 运行证据
+
+本仓库包含实际运行的图像、视频及消息记录；使用 ROS 2 Humble、CycloneDDS 和虚拟底盘。
+
+- [完整运行录屏（H.264 MP4）](docs/evidence/full_run.mp4)：从节点启动开始，连续展示输入、目标、输出曲线、里程计、运动状态、rqt_graph 和真实启动日志，最后停车并关闭节点。GitHub 文件页可下载视频。
+- [rqt_graph 运行截图](docs/evidence/rqt_graph.png)及[运行拓扑 JSON](docs/evidence/runtime_graph.json)：由运行中的 ROS 图查询得到。
+- [场景验证结果](docs/evidence/results.json)、[逐周期报告](docs/evidence/reports.jsonl)和[进程日志](docs/evidence/launch.log)：供独立复核。
+- [视频时间索引、录制环境与复现方法](docs/evidence/README.md)。
+
+![运行中的 ROS Topic 与节点连接](docs/evidence/rqt_graph.png)
+
+演示使用额外的 `/demo_evidence_driver` 发布测试指令并观察消息；产品节点仍是网关、虚拟底盘和监控三个节点。录屏直接采集运行中的演示窗口，没有用静态图动画替代实际运行，也没有真实硬件制动测试。
+
+现有有意义提交包含：`e182973` 添加 ROS 2 项目与测试数据、`01aef7e` 重写 README、`9e194f1` 修正安全约束及验证逻辑；交付证据在后续独立提交中保存，未为满足数量要求拆分空提交。
+
+## AI 使用说明
+
+本项目使用 OpenAI Codex 辅助系统设计、C++ 与 Python 代码修改、边界问题分析、回归测试、ROS 2 运行验证、Git 操作和文档整理。安全限速修正、参数校验、状态来源与 UNKNOWN 行为、离线审计及演示采集工具包含 AI 辅助实现。
+
+用户提供任务要求、确认修改方案并授权本地合并。AI 在本机实际执行构建、测试、节点运行和录屏，文档中的运行结论以对应日志和数据为依据；没有把 AI 生成的示意结果当作实测证据。源码、参数、复现命令和提交历史均公开，便于审阅 AI 辅助产生的修改。
+
+AI 仅参与开发与验证流程，机器人运行时不调用大模型或外部 AI 服务，速度处理由本地 C++ 节点确定性执行。
+
 ## 常见问题
 
 ### WSL2 / 多网卡环境下节点收不到消息
@@ -324,8 +355,11 @@ cmd_vel_safety/
 ├── .gitignore
 ├── README.md
 ├── PROJECT_OUTLINE.md              架构与安全规则设计
+├── tools/capture_demo.py           完整演示录屏与证据采集
 ├── docs/
-│   └── scenario.md                 场景标注与历史实测结果
+│   ├── scenario.md                 场景标注与历史实测结果
+│   ├── verification.md             安全修正验收记录
+│   └── evidence/                   完整 MP4、运行截图与数据
 └── src/
     ├── cmd_vel_safety_msgs/        自定义消息接口包
     │   └── msg/
