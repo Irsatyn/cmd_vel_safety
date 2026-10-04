@@ -1,0 +1,33 @@
+# ROS 2 / colcon generated output
+/build/
+/install/
+/log/
+
+# Python cache and test output
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local environments and credentials
+.venv/
+venv/
+.env
+.env.*
+!.env.example
+.aws/
+.codex/
+.agents/
+
+# Editor and operating-system files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Local recording output; bundled test bags under src/ remain tracked
+/cmd_vel_safety_runs/

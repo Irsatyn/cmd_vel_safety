@@ -1,0 +1,88 @@
+# Tuned for a small indoor differential-drive robot (~20 kg, 0.35 m wheel base).
+#
+# The defaults are also chosen so that every anomaly embedded in the supplied
+# bags/cmd_vel recording is detected -- see docs/scenario.md for the mapping
+# from each parameter to the bag segment it acts on.
+
+velocity_guard:
+  ros__parameters:
+    # --- I/O -----------------------------------------------------------------
+    input_topic: "/cmd_vel"
+    output_topic: "/cmd_vel_safe"
+    report_topic: "/velocity_guard/report"
+    estop_topic: "/e_stop"
+    # best_effort accepts both reliable and best-effort publishers; a reliable
+    # subscription would silently receive nothing from a best-effort producer.
+    cmd_vel_qos_reliability: "best_effort"
+    # transient_local so a guard that starts while the e-stop is already
+    # asserted stays stopped. Note the consequence: the publisher must also be
+    # transient_local, or DDS silently delivers nothing. See the README for the
+    # correct `ros2 topic pub` invocation. Set to "volatile" to accept any
+    # publisher at the cost of losing the latch.
+    estop_qos_durability: "transient_local"
+    control_rate_hz: 20.0
+
+    # --- kinematic envelope --------------------------------------------------
+    max_linear_x: 1.0          # m/s
+    min_linear_x: -0.3         # m/s, tighter than forward: no rear sensing
+    max_angular_z: 1.5         # rad/s
+    max_linear_accel: 0.8      # m/s^2
+    max_linear_decel: 1.5      # m/s^2, braking harder than accelerating
+    max_angular_accel: 2.0     # rad/s^2
+    max_angular_decel: 3.0     # rad/s^2
+    max_lateral_accel: 1.2     # m/s^2, bounds |v*w|; 0 disables
+
+    # --- input validation ----------------------------------------------------
+    enforce_nonholonomic: true # set false for an omnidirectional base
+    nonholonomic_epsilon: 1.0e-6
+    max_consecutive_invalid: 5 # tolerate transient corruption, not a broken producer
+
+    # --- spike rejection -----------------------------------------------------
+    spike_rejection_enabled: true
+    spike_linear_threshold: 0.6   # m/s
+    spike_angular_threshold: 1.2  # rad/s
+    spike_confirm_count: 1        # one extra frame confirms a genuine step
+
+    # --- deadband ------------------------------------------------------------
+    linear_deadband: 0.01
+    angular_deadband: 0.02
+
+    # --- failsafe ------------------------------------------------------------
+    cmd_timeout: 0.5           # s; must span >= 2 control cycles
+    emergency_decel_factor: 2.0
+    estop_hard_stop: true
+
+    log_throttle_sec: 2.0
+
+motion_state_monitor:
+  ros__parameters:
+    cmd_vel_topic: "/cmd_vel"
+    cmd_vel_safe_topic: "/cmd_vel_safe"
+    report_topic: "/velocity_guard/report"
+    odom_topic: "/odom"
+    state_topic: "/robot_motion_state"
+    status_topic: "/robot_status"
+
+    publish_rate_hz: 5.0
+    idle_linear_threshold: 0.02
+    idle_angular_threshold: 0.05
+    turn_in_place_linear_threshold: 0.05
+    expected_input_rate_hz: 10.0   # the supplied bag publishes at 10 Hz
+    input_rate_tolerance: 0.5
+    rate_window: 2.0
+    signal_lost_timeout: 1.0
+    frozen_input_timeout: 10.0
+    tracking_error_warn: 0.15
+    odom_stale_timeout: 1.0
+
+virtual_robot:
+  ros__parameters:
+    cmd_topic: "/cmd_vel_safe"
+    odom_topic: "/odom"
+    update_rate_hz: 50.0
+    linear_time_constant: 0.15   # s, first-order drivetrain lag
+    angular_time_constant: 0.10  # s
+    cmd_timeout: 0.5             # s, independent of the guard's own watchdog
+    odom_frame: "odom"
+    base_frame: "base_link"
+    publish_tf: true

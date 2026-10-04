@@ -1,0 +1,45 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>cmd_vel_safety</name>
+  <version>1.0.0</version>
+  <description>
+    A /cmd_vel safety gateway and motion-state monitor for a differential-drive
+    robot. velocity_guard validates, clamps and rate-limits incoming velocity
+    commands and fails safe on signal loss; motion_state_monitor classifies the
+    resulting motion and reports link health; virtual_robot is a plant model
+    that closes the loop so the pipeline can be exercised without hardware.
+  </description>
+  <maintainer email="dev@example.com">cmd_vel_safety maintainer</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>rclcpp</depend>
+  <depend>std_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>nav_msgs</depend>
+  <depend>diagnostic_msgs</depend>
+  <depend>rcl_interfaces</depend>
+  <depend>tf2</depend>
+  <depend>tf2_ros</depend>
+  <depend>cmd_vel_safety_msgs</depend>
+
+  <!-- used by the launch files -->
+  <exec_depend>ros2launch</exec_depend>
+  <exec_depend>rosbag2_transport</exec_depend>
+  <exec_depend>ros2bag</exec_depend>
+  <exec_depend>rosbag2_storage_default_plugins</exec_depend>
+  <!-- optional visualisation, pulled in for the demo launch file -->
+  <exec_depend>rqt_graph</exec_depend>
+  <exec_depend>rqt_plot</exec_depend>
+  <exec_depend>python3-yaml</exec_depend>
+
+  <test_depend>ament_cmake_gtest</test_depend>
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>
