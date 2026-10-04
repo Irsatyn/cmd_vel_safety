@@ -38,6 +38,7 @@
 | [launch.log](launch.log) | 三节点启动、状态变化及关闭的真实日志 |
 | [final_state.png](final_state.png) | 最后停车阶段的窗口 |
 | [manifest.json](manifest.json) | 环境、视频尺寸 / 时长和文件 SHA-256 |
+| [published_verification.json](published_verification.json) | 发布快照的 GitHub 文件、提交历史和实际视频下载校验 |
 
 非法输入在 JSON 中以字符串 `nan` / `inf` 表示，以保持标准 JSON 可解析。
 本次检查以实时报告验证演示场景，不替代全部算法测试或源 bag 的严格完整性审计；完整回归与 bag 审计方法见根目录 README。

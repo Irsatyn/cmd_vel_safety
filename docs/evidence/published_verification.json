@@ -1,0 +1,28 @@
+{
+  "verified_at_utc": "2026-10-04T14:38:34.815802+00:00",
+  "repository": "https://github.com/Irsatyn/cmd_vel_safety",
+  "visibility": "public",
+  "verified_revision": "4dd5d473225f23fccc5f88408fc458e395eadaee",
+  "verified_tracked_files": 42,
+  "all_remote_files_match_local_revision": true,
+  "commits_visible_at_verification": 6,
+  "meaningful_history_examples": [
+    {
+      "sha": "e182973",
+      "purpose": "Add complete ROS 2 packages and test data"
+    },
+    {
+      "sha": "01aef7e",
+      "purpose": "Rewrite project README"
+    },
+    {
+      "sha": "9e194f1",
+      "purpose": "Fix safety constraints, monitoring and validation"
+    }
+  ],
+  "video_download_url": "https://raw.githubusercontent.com/Irsatyn/cmd_vel_safety/main/docs/evidence/full_run.mp4",
+  "downloaded_video_bytes": 954652,
+  "downloaded_video_sha256": "86cf3581b299256e678610dafc13ca046c8c535bb14927ee1fc26a90121fcd32",
+  "video_checksum_matches_manifest": true,
+  "note": "Verification of the published delivery snapshot; later commits only record final acceptance."
+}
