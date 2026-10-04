@@ -38,16 +38,22 @@ TOPICS = [
 ]
 
 
+def prepare_output_path(output):
+    """Normalize paths and reject collisions before launching any processes."""
+    if not output:
+        output = os.path.join(os.path.expanduser('~'), 'cmd_vel_safety_runs',
+                              'run_' + datetime.now().strftime('%Y%m%d_%H%M%S_%f'))
+    output = os.path.abspath(os.path.expanduser(output))
+    if os.path.exists(output):
+        raise FileExistsError(f'Recording output already exists: {output}')
+    os.makedirs(os.path.dirname(output), exist_ok=True)
+    return output
+
+
 def _launch_setup(context, *_args, **_kwargs):
     pkg_share = FindPackageShare('cmd_vel_safety').perform(context)
 
-    out = LaunchConfiguration('output').perform(context)
-    if not out:
-        out = os.path.join(
-            os.path.expanduser('~'),
-            'cmd_vel_safety_runs',
-            'run_' + datetime.now().strftime('%Y%m%d_%H%M%S'))
-    os.makedirs(os.path.dirname(out), exist_ok=True)
+    out = prepare_output_path(LaunchConfiguration('output').perform(context))
 
     replay = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -65,7 +71,7 @@ def _launch_setup(context, *_args, **_kwargs):
     record = TimerAction(
         period=1.0,
         actions=[ExecuteProcess(
-            cmd=['ros2', 'bag', 'record', '-o', out] + TOPICS,
+            cmd=['ros2', 'bag', 'record', '--use-sim-time', '-o', out] + TOPICS,
             output='screen',
             name='bag_record',
         )],

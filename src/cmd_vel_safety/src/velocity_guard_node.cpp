@@ -17,6 +17,7 @@
 #include <cmath>
 #include <memory>
 #include <string>
+#include <stdexcept>
 #include <utility>
 #include <vector>
 
@@ -66,6 +67,20 @@ public:
     const std::string estop_topic = get_parameter("estop_topic").as_string();
     control_rate_hz_ = get_parameter("control_rate_hz").as_double();
 
+    const auto error = validateLimits(limits_, control_rate_hz_);
+    if (!error.empty()) {throw std::invalid_argument(error);}
+    log_throttle_sec_ = get_parameter("log_throttle_sec").as_double();
+    if (!std::isfinite(log_throttle_sec_) || log_throttle_sec_ < 0.0) {
+      throw std::invalid_argument("log_throttle_sec must be finite and nonnegative");
+    }
+    const auto reliability = get_parameter("cmd_vel_qos_reliability").as_string();
+    const auto durability = get_parameter("estop_qos_durability").as_string();
+    if (reliability != "best_effort" && reliability != "reliable") {
+      throw std::invalid_argument("cmd_vel_qos_reliability must be best_effort or reliable");
+    }
+    if (durability != "volatile" && durability != "transient_local") {
+      throw std::invalid_argument("estop_qos_durability must be volatile or transient_local");
+    }
     limiter_.setLimits(limits_);
 
     // A BestEffort subscription is compatible with both Reliable and
@@ -176,7 +191,7 @@ private:
       "estop_qos_durability", "transient_local",
       "e-stop QoS durability: transient_local (a late-starting guard learns an "
       "already-asserted e-stop, but Volatile publishers cannot reach it) | "
-      "volatile (accepts any publisher, loses the latch)");
+      "volatile (accepts reliable publishers, loses historical state)");
 
     declareDouble("control_rate_hz", 20.0, 1.0, 1000.0, "fixed output rate [Hz]");
 
@@ -303,35 +318,15 @@ private:
       }
     }
 
-    // Cross-field consistency checks the declared ranges cannot express.
-    const char * why = nullptr;
-    if (!(cand.max_linear_x > 0.0)) {
-      why = "max_linear_x must be > 0 (a robot that cannot move forward is not useful)";
-    } else if (cand.min_linear_x > 0.0) {
-      why = "min_linear_x must be <= 0 (it is the reverse limit)";
-    } else if (!(cand.max_angular_z >= 0.0)) {
-      why = "max_angular_z must be >= 0";
-    } else if (!(cand.max_linear_accel > 0.0) || !(cand.max_linear_decel > 0.0)) {
-      why = "linear accel/decel limits must be > 0";
-    } else if (!(cand.max_angular_accel > 0.0) || !(cand.max_angular_decel > 0.0)) {
-      why = "angular accel/decel limits must be > 0";
-    } else if (!(cand.cmd_timeout > 0.0)) {
-      why = "cmd_timeout must be > 0";
-    } else if (cand.spike_confirm_count < 1) {
-      why = "spike_confirm_count must be >= 1";
-    } else if (cand.max_consecutive_invalid < 1) {
-      why = "max_consecutive_invalid must be >= 1";
-    } else if (!(rate > 0.0)) {
-      why = "control_rate_hz must be > 0";
-    } else if (cand.cmd_timeout < 2.0 / rate) {
-      why = "cmd_timeout must span at least two control cycles, "
-        "otherwise the watchdog trips on normal jitter";
+    std::string why = validateLimits(cand, rate);
+    if (why.empty()) {why = validateEnvelopeUpdate(cand, limiter_.output());}
+    if (why.empty() && (!std::isfinite(throttle) || throttle < 0.0 || throttle > 60.0)) {
+      why = "log_throttle_sec must be finite and in [0, 60]";
     }
-
-    if (why != nullptr) {
+    if (!why.empty()) {
       res.successful = false;
       res.reason = why;
-      RCLCPP_WARN(get_logger(), "rejected parameter update: %s", why);
+      RCLCPP_WARN(get_logger(), "rejected parameter update: %s", why.c_str());
       return res;
     }
 
@@ -422,7 +417,8 @@ private:
 
   void onTimer()
   {
-    const double now = nowSeconds();
+    const auto stamp = this->now();
+    const double now = stamp.seconds();
 
     // Detect a backwards clock jump (bag replay looping, sim reset). Carrying
     // stale timestamps across it would make dt and the watchdog meaningless.
@@ -447,14 +443,14 @@ private:
     // cannot execute them, so publishing anything else would be a lie.
     cmd_pub_->publish(out);
 
-    publishReport(now, c);
+    publishReport(stamp, c);
     logTransitions(c);
   }
 
-  void publishReport(double now, const CycleResult & c)
+  void publishReport(const rclcpp::Time & stamp, const CycleResult & c)
   {
     SafetyReport rep;
-    rep.header.stamp = this->now();
+    rep.header.stamp = stamp;
     rep.header.frame_id = "base_link";
 
     rep.flags = static_cast<uint16_t>(c.flags | pending_flags_);
@@ -474,7 +470,7 @@ private:
     rep.output_cmd.linear.x = c.output.v;
     rep.output_cmd.angular.z = c.output.w;
 
-    const double since = limiter_.timeSinceLastInput(now);
+    const double since = limiter_.timeSinceLastInput(stamp.seconds());
     rep.input_rate_hz = limiter_.inputRateHz();
     rep.time_since_last_input = std::isfinite(since) ? since : -1.0;
     rep.watchdog_active = c.watchdog_active;

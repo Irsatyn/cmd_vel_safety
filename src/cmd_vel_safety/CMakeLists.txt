@@ -68,6 +68,11 @@ if(BUILD_TESTING)
   ament_add_gtest(test_safety_limiter test/test_safety_limiter.cpp)
   target_link_libraries(test_safety_limiter safety_limiter)
 
+  find_package(ament_cmake_pytest REQUIRED)
+  ament_add_pytest_test(test_check_bag test/test_check_bag.py)
+  find_package(launch_testing_ament_cmake REQUIRED)
+  add_launch_test(test/test_node_contracts.py TIMEOUT 180)
+
   find_package(ament_lint_auto REQUIRED)
   set(ament_cmake_copyright_FOUND TRUE)
   set(ament_cmake_cpplint_FOUND TRUE)

@@ -16,6 +16,7 @@
 #include <memory>
 #include <sstream>
 #include <string>
+#include <stdexcept>
 #include <vector>
 
 #include "cmd_vel_safety/safety_limiter.hpp"
@@ -82,6 +83,8 @@ public:
   : Node("motion_state_monitor")
   {
     declareParameters();
+    const auto error = validateParameters({});
+    if (!error.empty()) {throw std::invalid_argument(error);}
     loadParameters();
 
     rclcpp::QoS cmd_qos(rclcpp::KeepLast(10));
@@ -108,22 +111,18 @@ public:
       "/diagnostics", rclcpp::QoS(rclcpp::KeepLast(10)));
 
     param_cb_ = add_on_set_parameters_callback(
-      [this](const std::vector<rclcpp::Parameter> &) {
+      [this](const std::vector<rclcpp::Parameter> & params) {
         rcl_interfaces::msg::SetParametersResult r;
-        r.successful = true;
-        // Re-read the whole set after the store is updated on the next cycle;
-        // thresholds here are advisory and cannot put the robot at risk.
-        reload_pending_ = true;
+        r.reason = validateParameters(params);
+        r.successful = r.reason.empty();
+        if (r.successful) {reload_pending_ = true;}
         return r;
       });
 
-    const double rate = get_parameter("publish_rate_hz").as_double();
-    timer_ = rclcpp::create_timer(
-      this, get_clock(), rclcpp::Duration(std::chrono::duration<double>(1.0 / rate)),
-      std::bind(&MotionStateMonitor::onTimer, this));
+    restartTimer();
 
     state_entered_ = nowSeconds();
-    RCLCPP_INFO(get_logger(), "motion_state_monitor up @ %.1f Hz", rate);
+    RCLCPP_INFO(get_logger(), "motion_state_monitor up @ %.1f Hz", publish_rate_hz_);
   }
 
 private:
@@ -156,6 +155,44 @@ private:
     declare_parameter("frozen_input_timeout", 10.0);
     declare_parameter("tracking_error_warn", 0.15);
     declare_parameter("odom_stale_timeout", 1.0);
+  }
+
+  std::string validateParameters(const std::vector<rclcpp::Parameter> & params) const
+  {
+    const std::vector<std::string> names = {
+      "publish_rate_hz", "idle_linear_threshold", "idle_angular_threshold",
+      "turn_in_place_linear_threshold", "expected_input_rate_hz", "input_rate_tolerance",
+      "rate_window", "signal_lost_timeout", "frozen_input_timeout", "tracking_error_warn",
+      "odom_stale_timeout"};
+    for (const auto & name : names) {
+      double value = get_parameter(name).as_double();
+      for (const auto & p : params) {
+        if (p.get_name() == name) {
+          if (p.get_type() != rclcpp::ParameterType::PARAMETER_DOUBLE) {
+            return name + " must be a double";
+          }
+          value = p.as_double();
+        }
+      }
+      const bool zero_allowed = name == "expected_input_rate_hz" ||
+        name == "input_rate_tolerance" || name == "tracking_error_warn";
+      if (!std::isfinite(value) || (zero_allowed ? value < 0.0 : value <= 0.0)) {
+        return name + " must be finite and " + (zero_allowed ? "nonnegative" : "positive");
+      }
+      if (name == "publish_rate_hz" && (value < 1.0 || value > 1000.0)) {
+        return "publish_rate_hz must be in [1, 1000]";
+      }
+    }
+    return "";
+  }
+
+  void restartTimer()
+  {
+    if (timer_) {timer_->cancel();}
+    publish_rate_hz_ = get_parameter("publish_rate_hz").as_double();
+    timer_ = rclcpp::create_timer(
+      this, get_clock(), rclcpp::Duration(std::chrono::duration<double>(1.0 / publish_rate_hz_)),
+      std::bind(&MotionStateMonitor::onTimer, this));
   }
 
   void loadParameters()
@@ -194,6 +231,7 @@ private:
 
   void onSafe(const geometry_msgs::msg::Twist::SharedPtr msg)
   {
+    if (!std::isfinite(msg->linear.x) || !std::isfinite(msg->angular.z)) {return;}
     safe_rate_.add(nowSeconds());
     last_safe_ = *msg;
     safe_have_ = true;
@@ -221,6 +259,15 @@ private:
     const double t = nowSeconds();
     const double v = msg->twist.twist.linear.x;
     const double w = msg->twist.twist.angular.z;
+    const auto & q = msg->pose.pose.orientation;
+    const double norm = std::hypot(std::hypot(q.x, q.y), std::hypot(q.z, q.w));
+    if (!std::isfinite(v) || !std::isfinite(w) || !std::isfinite(norm) || norm < 1e-12) {
+      invalid_odom_ = true;
+      RCLCPP_WARN_THROTTLE(
+        get_logger(), *get_clock(), 2000, "invalid odometry feedback ignored");
+      return;
+    }
+    invalid_odom_ = false;
 
     if (odom_have_ && t > odom_last_) {
       const double dt = t - odom_last_;
@@ -231,9 +278,8 @@ private:
     odom_v_ = v;
     odom_w_ = w;
     // yaw from the quaternion; roll/pitch are always zero for a ground base
-    const auto & q = msg->pose.pose.orientation;
-    heading_ = std::atan2(
-      2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z));
+    const double qx = q.x / norm, qy = q.y / norm, qz = q.z / norm, qw = q.w / norm;
+    heading_ = std::atan2(2.0 * (qw * qz + qx * qy), 1.0 - 2.0 * (qy * qy + qz * qz));
     odom_last_ = t;
     odom_have_ = true;
   }
@@ -245,6 +291,7 @@ private:
     // *why* the robot is not moving, not merely that it is stopped.
     if (guard_estop_) {return MotionState::STATE_EMERGENCY_STOP;}
     if (guard_hold_) {return MotionState::STATE_SAFETY_HOLD;}
+    if (velocity_source_ == MotionState::SOURCE_UNKNOWN) {return MotionState::STATE_UNKNOWN;}
     if (signal_lost) {return MotionState::STATE_SIGNAL_LOST;}
 
     const bool moving = std::fabs(v) >= idle_lin_ || std::fabs(w) >= idle_ang_;
@@ -267,6 +314,7 @@ private:
   static const char * stateName(uint8_t s)
   {
     switch (s) {
+      case MotionState::STATE_UNKNOWN: return "UNKNOWN";
       case MotionState::STATE_IDLE: return "IDLE";
       case MotionState::STATE_FORWARD: return "FORWARD";
       case MotionState::STATE_REVERSE: return "REVERSE";
@@ -285,6 +333,7 @@ private:
   {
     if (reload_pending_) {
       loadParameters();
+      if (get_parameter("publish_rate_hz").as_double() != publish_rate_hz_) {restartTimer();}
       reload_pending_ = false;
     }
 
@@ -302,13 +351,14 @@ private:
     const bool signal_lost = !raw_rate_.have() || since_raw > signal_lost_timeout_;
     const bool odom_stale = !odom_have_ || (now - odom_last_) > odom_stale_timeout_;
 
-    // Without /odom (virtual_robot absent or dead) fall back to the commanded
-    // velocity so the monitor degrades gracefully rather than going blind.
     double v = odom_v_;
     double w = odom_w_;
+    velocity_source_ = MotionState::SOURCE_ODOMETRY;
     if (odom_stale) {
-      v = safe_have_ ? last_safe_.linear.x : 0.0;
-      w = safe_have_ ? last_safe_.angular.z : 0.0;
+      const bool safe_fresh = safe_have_ && safe_rate_.since(now) <= signal_lost_timeout_;
+      velocity_source_ = safe_fresh ? MotionState::SOURCE_COMMAND : MotionState::SOURCE_UNKNOWN;
+      v = safe_fresh ? last_safe_.linear.x : 0.0;
+      w = safe_fresh ? last_safe_.angular.z : 0.0;
     }
 
     const bool frozen = raw_have_ && !signal_lost &&
@@ -337,6 +387,12 @@ private:
     } else if (guard_hold_) {
       health = MotionState::HEALTH_ERROR;
       hmsg = "safety hold: upstream persistently invalid";
+    } else if (velocity_source_ == MotionState::SOURCE_UNKNOWN) {
+      health = MotionState::HEALTH_STALE;
+      hmsg = "no fresh odometry or safe command: motion unknown";
+    } else if (invalid_odom_) {
+      health = MotionState::HEALTH_WARN;
+      hmsg = "invalid odometry feedback ignored";
     } else if (signal_lost) {
       health = MotionState::HEALTH_ERROR;
       hmsg = raw_rate_.have() ?
@@ -378,6 +434,7 @@ private:
     MotionState m;
     m.header.stamp = this->now();
     m.header.frame_id = "base_link";
+    m.velocity_source = velocity_source_;
     m.state = state;
     m.state_name = stateName(state);
     m.health = health;
@@ -454,8 +511,9 @@ private:
     motion.hardware_id = "base";
     motion.level = (m.state == MotionState::STATE_EMERGENCY_STOP ||
       m.state == MotionState::STATE_SAFETY_HOLD) ? DiagnosticStatus::ERROR :
+      (m.velocity_source == MotionState::SOURCE_UNKNOWN ? DiagnosticStatus::STALE :
       (m.state == MotionState::STATE_SIGNAL_LOST ? DiagnosticStatus::WARN :
-      DiagnosticStatus::OK);
+      DiagnosticStatus::OK));
     motion.message = m.state_name;
     motion.values.push_back(kv("linear [m/s]", fmt(m.linear_speed)));
     motion.values.push_back(kv("angular [rad/s]", fmt(m.angular_speed)));
@@ -524,6 +582,8 @@ private:
     safe_rate_ = RateWindow{};
     distance_ = 0.0;
     odom_have_ = false;
+    invalid_odom_ = false;
+    guard_estop_ = guard_hold_ = guard_watchdog_ = false;
     guard_seen_ = false;
     raw_have_ = false;
     safe_have_ = false;
@@ -538,6 +598,9 @@ private:
   double expected_hz_ = 10.0, rate_tol_ = 0.5, rate_window_ = 2.0;
   double signal_lost_timeout_ = 1.0, frozen_timeout_ = 10.0;
   double tracking_warn_ = 0.15, odom_stale_timeout_ = 1.0;
+  double publish_rate_hz_ = 5.0;
+  uint8_t velocity_source_ = MotionState::SOURCE_UNKNOWN;
+  bool invalid_odom_ = false;
   bool reload_pending_ = false;
 
   // observed state

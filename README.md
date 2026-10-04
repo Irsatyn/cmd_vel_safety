@@ -11,7 +11,7 @@
 - **失效处理**：指令超时刹车、持续非法输入安全保持、急停状态控制；虚拟底盘具有独立看门狗。
 - **状态监控**：运动状态分类、指令频率、断流、里程计新鲜度和速度跟踪误差监控。
 - **可追溯性**：逐周期发布原始输入、有效目标、实际输出、干预标志和原因。
-- **验证工具**：内置测试 rosbag、19 项算法单元测试、全链路录制及离线校验脚本。
+- **验证工具**：内置测试 rosbag、算法回归测试与节点集成测试、全链路录制及离线校验脚本。
 
 ## 目录
 
@@ -117,6 +117,10 @@ ros2 topic echo /robot_status
 | `virtual_robot` | 50 Hz | 模拟差速底盘与电机滞后，发布里程计和 TF |
 | `motion_state_monitor` | 5 Hz | 分类运动状态，发布结构化状态、文字状态和诊断 |
 
+`MotionState.velocity_source` 明确标记速度来源：`SOURCE_ODOMETRY` 表示有效里程计，`SOURCE_COMMAND` 表示使用新鲜指令估计，`SOURCE_UNKNOWN` 表示两者均已失效。未知时发布 `STATE_UNKNOWN`，不把缺少数据当作已确认静止。异常里程计会被拒绝并报告诊断，恢复正常后继续累计有效里程。监控节点的 `publish_rate_hz` 支持动态调整。
+
+升级后需重新构建自定义消息包及其消费者。
+
 ### 主要接口
 
 | Topic | 消息类型 | 用途 |
@@ -162,7 +166,7 @@ rqt_plot /cmd_vel/linear/x /cmd_vel_safe/linear/x /velocity_guard/report/flags
 ros2 launch cmd_vel_safety record_bag.launch.py output:=/tmp/cmd_vel_safety_run
 ```
 
-启动脚本会先开始录制，再回放数据。回放完成后按 `Ctrl+C` 停止 launch，让录制进程关闭并完成 bag 写入。每次录制使用新的输出目录。
+启动脚本会先开始录制，再回放数据。回放完成后按 `Ctrl+C` 停止 launch，让录制进程关闭并完成 bag 写入。每次录制使用新的输出目录。录制器使用 `--use-sim-time`，其消息时间戳与控制循环使用同一 `/clock`。
 
 ### 接入实时指令
 
@@ -208,7 +212,9 @@ ros2 param list /velocity_guard
 ros2 param describe /velocity_guard max_lateral_accel
 ```
 
-运行时参数更新会校验范围和跨字段约束。例如，`cmd_timeout` 必须至少覆盖两个控制周期。被拒绝的更新会保留原配置。
+启动与运行时更新使用相同的参数校验。例如，`cmd_timeout` 必须至少覆盖两个控制周期。如果新速度或横向加速度上限无法容纳当前输出，更新会被拒绝，并提示先减速或停车后重设。拒绝后保留原配置。
+
+输出平滑也受 `abs(v * ω)` 约束：先完成允许的减速，再分配增速空间，同时竞争预算时优先线速度。反向运动先按减速度到零，再用剩余周期按加速度反向起步。硬急停可以直接输出零指令。
 
 Topic 名称和 QoS 参数为只读启动参数，修改 YAML 后需要重启节点。
 
@@ -252,7 +258,7 @@ colcon test-result --verbose
 ./build/cmd_vel_safety/test_safety_limiter
 ```
 
-19 项测试覆盖输入校验、毛刺确认、限幅、加减速、超时、急停及状态重置等行为。核心算法独立于 `rclcpp`，测试通过显式输入时间和控制周期验证结果。
+24 项算法测试覆盖输入校验、毛刺确认、限幅、加减速、超时、急停及状态重置等行为。核心算法独立于 `rclcpp`，测试通过显式输入时间和控制周期验证结果。另有 19 项离线校验器回归和 6 项实进程集成测试，覆盖参数、Topic 连接、异常反馈、诊断和动态频率。
 
 ### 录制结果离线校验
 
@@ -260,12 +266,17 @@ colcon test-result --verbose
 
 ```bash
 ros2 run cmd_vel_safety check_bag.py /tmp/cmd_vel_safety_run \
-  --params "$(pwd)/src/cmd_vel_safety/config/params.yaml"
+  --params "$(pwd)/src/cmd_vel_safety/config/params.yaml" \
+  --strict --reference-bag src/cmd_vel_safety/bags/cmd_vel
 ```
 
 `--params` 应指向本次运行使用的参数文件。脚本检查输出有限性、速度边界、横向加速度、不可执行自由度、输出连续性与看门狗停车行为。
 
-连续性校验使用安全报告的 `header.stamp` 与 `output_cmd`，避免将节点仿真时间上的速度变化除以 bag 接收侧的时间间隔。该检查采用紧急减速预算和测量容差；运行时调参或硬急停场景需要结合实际配置单独分析。
+连续性校验使用控制周期采样的 `header.stamp` 与 `output_cmd`，分别检查普通加速、普通制动、紧急制动及跨零反向；硬急停豁免斜率限制，但仍必须输出零。
+
+`--strict` 检查控制报告连续性、时间基准以及原始输入断流后的看门狗和停车行为。报告必须覆盖录到的输入时段，端点允许一个控制周期加 20 ms 的记录延迟；停车期限根据断流后的实际输出速度和紧急减速度计算，另允许两个控制周期（最少 40 ms）的记录延迟。报告间隔超过 1 s 与两个控制周期中的较大值时，判为无法验证；1 Hz 控制的正常周期可以通过。`--reference-bag` 还比较原始输入数量、顺序和内容，可以发现 320 帧只录到 310 帧的情况。安全输出与报告的数量、内容也必须一致。
+
+旧录制不加 `--strict` 时可做逐点与连续性检查，无法验证的项会显示 `UNCHECKED`。严格断流审计使用单次、同钟录制；循环回放请逐轮单独录制。运行时调参的数据需按配置变化拆分后检查。
 
 ### 场景覆盖
 

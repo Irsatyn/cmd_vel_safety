@@ -14,6 +14,13 @@ uint8 STATE_SAFETY_HOLD     = 7   # watchdog / invalid-input hold
 uint8 STATE_EMERGENCY_STOP  = 8   # e-stop latched
 uint8 STATE_SIGNAL_LOST     = 9   # no upstream command at all
 
+uint8 STATE_UNKNOWN = 10          # no fresh feedback or command estimate
+
+uint8 SOURCE_UNKNOWN = 0
+uint8 SOURCE_ODOMETRY = 1
+uint8 SOURCE_COMMAND = 2
+uint8 velocity_source
+
 uint8 state
 string state_name
 

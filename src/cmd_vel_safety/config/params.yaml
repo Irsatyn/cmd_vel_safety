@@ -18,10 +18,11 @@ velocity_guard:
     # asserted stays stopped. Note the consequence: the publisher must also be
     # transient_local, or DDS silently delivers nothing. See the README for the
     # correct `ros2 topic pub` invocation. Set to "volatile" to accept any
-    # publisher at the cost of losing the latch.
+    # reliable publisher at the cost of losing historical state.
     estop_qos_durability: "transient_local"
     control_rate_hz: 20.0
 
+    # Tightening is rejected if the current output exceeds the proposed envelope.
     # --- kinematic envelope --------------------------------------------------
     max_linear_x: 1.0          # m/s
     min_linear_x: -0.3         # m/s, tighter than forward: no rear sensing
@@ -33,7 +34,7 @@ velocity_guard:
     max_lateral_accel: 1.2     # m/s^2, bounds |v*w|; 0 disables
 
     # --- input validation ----------------------------------------------------
-    enforce_nonholonomic: true # set false for an omnidirectional base
+    enforce_nonholonomic: true # false disables reporting only; output remains differential-drive
     nonholonomic_epsilon: 1.0e-6
     max_consecutive_invalid: 5 # tolerate transient corruption, not a broken producer
 

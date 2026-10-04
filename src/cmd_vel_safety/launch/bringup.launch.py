@@ -77,6 +77,7 @@ def generate_launch_description():
         emulate_tty=True,
         parameters=[params_file, common],
         arguments=cli,
+        remappings=[('/cmd_vel', raw_topic), ('/cmd_vel_safe', safe_topic)],
         condition=IfCondition(LaunchConfiguration('enable_monitor')),
     )
 
@@ -88,6 +89,7 @@ def generate_launch_description():
         emulate_tty=True,
         parameters=[params_file, common],
         arguments=cli,
+        remappings=[('/cmd_vel_safe', safe_topic)],
         condition=IfCondition(LaunchConfiguration('enable_virtual_robot')),
     )
 

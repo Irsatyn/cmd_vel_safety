@@ -185,6 +185,14 @@ private:
   uint64_t total_published_ = 0;
 };
 
+/// Empty string means valid; otherwise returns a user-facing rejection reason.
+std::string validateLimits(const Limits & limits, double control_rate_hz);
+std::string validateEnvelopeUpdate(const Limits & limits, const Velocity2D & current);
+
+/// Constrain a reachable step without exceeding either axis's slew budget.
+Velocity2D constrainCoupledStep(
+  const Velocity2D & previous, const Velocity2D & candidate, double lateral_limit);
+
 /// Human-readable names for a flag bitmask, for logs and status strings.
 std::vector<std::string> describeFlags(uint16_t flags);
 

@@ -164,6 +164,11 @@ uint8 STATE_SAFETY_HOLD    = 7    # 看门狗/连续非法输入导致的保持
 uint8 STATE_EMERGENCY_STOP = 8    # 急停latched
 uint8 STATE_SIGNAL_LOST    = 9    # 完全无上游输入
 
+uint8 STATE_UNKNOWN = 10
+uint8 SOURCE_UNKNOWN = 0
+uint8 SOURCE_ODOMETRY = 1
+uint8 SOURCE_COMMAND = 2
+uint8 velocity_source
 uint8 state
 string state_name
 
@@ -240,7 +245,7 @@ uint16 last_safety_flags
  └───────────────────────────────────────────────────────────────┘
 ```
 
-**为什么限幅放在 `update()` 而不是 `submit()`**：限幅是无状态运算，放在输出侧意味着运行时通过 `ros2 param set` 调整限幅参数会**立即**作用于当前正在执行的指令，而不必等到下一帧输入。对于「发现机器人跑太快，立刻降低上限」这种现场操作，这个差别很关键。
+**为什么限幅放在 `update()` 而不是 `submit()`**：已接受的参数在下一输出周期作用于当前目标，不必等待新输入。动态收紧时先检查当前输出能否满足新速度和横向加速度范围；不能满足则拒绝整次更新，提示先减速或停车。这样已生效的范围始终与实际输出约束一致。
 
 ### 6.1 有限性校验（对应第 220、225 帧）
 
@@ -277,6 +282,8 @@ NaN/Inf 出现在任一分量时**整帧丢弃**，而不是只把坏分量置�
 
 单独限制 `v` 和 `ω` 不足以保证安全：`v=1.0, ω=1.5` 两者都在限内，但向心加速度 `v·ω = 1.5 m/s²` 足以让高重心机器人侧翻或让载物滑落。系统约束 `|v·ω| ≤ max_lateral_accel`，超出时按 `ω ← sign(ω)·a_max/|v|` 压缩角速度（保留平动意图，牺牲转向半径）。
 
+最终输出也必须满足耦合约束。各轴先按加减速度计算本周期可达区间，再选区间内最靠近零的速度作为起点，依次恢复允许的线速度和角速度进度。该顺序先利用减速释放预算，再约束增速，避免目标合法但过渡输出超限。反向跨零时分别计算制动到零和反向加速所用时间。
+
 ### 6.5 看门狗（对应 27.9→32.0 s 空洞）
 
 超过 `cmd_timeout`（默认 0.5 s）未收到输入即判定链路中断：
@@ -306,7 +313,7 @@ ros2 topic pub /e_stop std_msgs/msg/Bool '{data: true}' \
 
 ## 7. 参数设计
 
-全部参数带 `ParameterDescriptor`（含物理单位与取值范围说明），并注册 `on_set_parameters_callback` 做**合法性校验**（如 `max_linear_x > 0`、`min_linear_x ≤ 0`、`control_rate_hz > 0`），非法设置被拒绝并返回原因，节点保持上一组有效参数继续运行。参数本身也是一个需要防御的外部输入。
+速度网关的数值参数通过 `ParameterDescriptor` 声明范围，启动配置与运行时更新共用有限性、范围和跨字段校验，并注册 `on_set_parameters_callback` 做**合法性校验**（如 `max_linear_x > 0`、`min_linear_x ≤ 0`、`control_rate_hz > 0`），非法设置被拒绝并返回原因，节点保持上一组有效参数继续运行。参数本身也是一个需要防御的外部输入。
 
 ### `velocity_guard`
 
@@ -383,7 +390,8 @@ ros2 topic pub /e_stop std_msgs/msg/Bool '{data: true}' \
 | 急停在节点启动前置位 | TransientLocal QoS | 启动即保持停止 | `FLAG_ESTOP` |
 | 参数被设为非法值 | `on_set_parameters_callback` | 拒绝，保留原值 | 拒绝原因 |
 | 下游节点崩溃 | `virtual_robot` 自带看门狗 | 底盘侧独立停车 | — |
-| 时间回跳（bag 循环/仿真重置） | `dt ≤ 0` 或 `dt` 异常大 | 跳过本周期积分，复位计时 | 日志 |
+| 时间回跳（bag 循环/仿真重置） | 节点时钟早于上一周期 | 重置安全状态和监控统计，重新计时 | 日志 |
+| 异常控制周期 | 非正/非有限 `dt` 或正值大于 1 s | 前者使用上次有效周期；后者积分预算封顶 1 s | 算法回归测试 |
 
 ---
 
@@ -392,7 +400,7 @@ ros2 topic pub /e_stop std_msgs/msg/Bool '{data: true}' \
 | Launch 文件 | 用途 |
 |---|---|
 | `bringup.launch.py` | 启动三节点 + YAML 参数。参数：`params_file`、`use_sim_time`、`enable_virtual_robot`、`log_level`、各 topic 重映射 |
-| `replay_bag.launch.py` | `bringup` + `ros2 bag play`（含 `--clock`、`rate`、`loop`），一条命令复现全部异常场景 |
+| `replay_bag.launch.py` | `bringup` + `ros2 bag play`（含 `--clock`、`rate`、`loop`），回放给定 bag 包含的异常场景 |
 | `record_bag.launch.py` | `bringup` + `ros2 bag record` 全链路话题，产出可回放的验证数据 |
 | `demo.launch.py` | `replay_bag` + `rqt_graph` + `rqt_plot`（预置曲线），一键演示 |
 
@@ -415,7 +423,7 @@ ros2 topic pub /e_stop std_msgs/msg/Bool '{data: true}' \
   `/velocity_guard/report/flags`（干预位掩码，指出每处干预的时刻与类型）
 - `rqt_runtime_monitor`：读取 `/diagnostics`，以 OK/WARN/ERROR 展示链路健康。
 - `rqt_console`：观察分级日志（超限用 `THROTTLE` 限流，避免日志风暴）。
-- `rqt_reconfigure`：运行时调整限幅参数，直接观察 `/cmd_vel_safe` 的即时变化（§6 中把限幅放在输出侧的收益）。
+- `rqt_reconfigure`：运行时调整限幅参数，观察被接受的参数更新对 `/cmd_vel_safe` 的影响，收紧前需满足当前输出检查。
 
 ---
 
@@ -464,12 +472,12 @@ cmd_vel_safety_ws/
 
 1. `/cmd_vel_safe` 的 6 个分量永远有限（无 NaN/Inf）；
 2. `min_linear_x ≤ v ≤ max_linear_x` 且 `|ω| ≤ max_angular_z`；
-3. 相邻输出的 `|Δv|/dt ≤ max_linear_decel × emergency_factor`（即输出连续，无瞬时跳变）；
+3. 普通加速、普通制动与紧急制动分别满足配置预算；跨零分配两段时间，硬急停允许直接输出零；
 4. `|v·ω| ≤ max_lateral_accel`；
 5. 输入中断超过 `cmd_timeout` 后，输出在有限时间内收敛到 0 并保持；
 6. 若 `enforce_nonholonomic`，输出的 `ly/lz/ax/ay` 恒为 0。
 
-### 13.1 实测结果
+### 13.1 历史实测结果（修正前）
 
 | 层次 | 结果 |
 |---|---|
@@ -490,3 +498,12 @@ cmd_vel_safety_ws/
 最初 `check_bag.py` 用 rosbag2 的接收时间戳计算 `dv/dt`，报出 `3.007 > 3.000 m/s²` 的违例。这是**校验脚本自身的缺陷**：`use_sim_time` 下节点以仿真时钟计算加速度预算，而 rosbag2 的接收时间戳取自系统时钟，跨时钟相除没有意义。`/cmd_vel_safe` 是无 header 的裸 `Twist`，无法提供节点侧时间戳；改为在 `/velocity_guard/report` 上校验后，`header.stamp` 与同一条消息里的 `output_cmd` 来自同一时钟，不变量 3 随即通过。
 
 这也反过来说明了为什么 `SafetyReport` 要带 `header` 并同时携带 `input/target/output` 三元组：它让每一个输出都能在单条消息内被自证与离线复核。
+
+## 14. 安全修正后的接口与验证
+
+- `MotionState` 追加 `velocity_source` 与 `STATE_UNKNOWN=10`，旧状态编号不变。有效里程计优先，新鲜安全指令可作降级估计；两者失效时为 UNKNOWN。
+- 非有限速度、非有限或零范数四元数不更新有效反馈，不污染累计里程。有限四元数归一化后用于朝向计算。
+- `publish_rate_hz` 动态修改重建监控定时器；非法频率、窗口与阈值被拒绝。
+- `SafetyReport.header.stamp` 与控制计算使用同一次时钟采样。
+- 新录制使用仿真时间；严格审计独立检查原始输入间隔、控制报告连续性以及输出/报告一致性。参考 bag 比较可证明原始输入完整性。
+- 本轮验证记录与旧数据的区别见 [场景文档第 7 节](docs/scenario.md#7-安全修正后的验证)。

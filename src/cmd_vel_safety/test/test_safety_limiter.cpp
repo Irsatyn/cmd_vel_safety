@@ -494,6 +494,88 @@ TEST(SafetyLimiter, HoldsAllInvariantsOverTheSuppliedBagScenario)
   EXPECT_NEAR(all.back().output.v, 0.0, 1e-6);
 }
 
+
+TEST(SafetyLimiter, KeepsLateralBoundDuringCrossedTransition)
+{
+  Harness h;
+  h.feed(fwd(1.0, 1.2), 3.0);
+  h.limiter().submit(fwd(0.8, 1.5), h.now());
+  for (int i = 1; i <= 40; ++i) {
+    const auto c = h.limiter().update(h.now() + i * kPeriod, kPeriod);
+    ASSERT_LE(std::fabs(c.output.v * c.output.w), 1.2 + 1e-9);
+    if (i == 8) {
+      EXPECT_NEAR(c.output.v, 0.8, 1e-9);
+      EXPECT_NEAR(c.output.w, 1.5, 1e-9);
+    }
+  }
+}
+
+TEST(SafetyLimiter, CoupledStepHandlesAllSignsAndConverges)
+{
+  for (double sv : {-1.0, 1.0}) {
+    for (double sw : {-1.0, 1.0}) {
+      Limits l;
+      l.min_linear_x = -1.0;
+      l.spike_rejection_enabled = false;
+      Harness h(l);
+      h.feed(fwd(sv, sw * 1.2), 3.0);
+      for (int i = 0; i < 8; ++i) {
+        const auto c = h.feedOnce(fwd(sv * 0.8, sw * 1.5));
+        EXPECT_LE(std::fabs(c.output.v * c.output.w), 1.2 + 1e-9);
+      }
+      EXPECT_NEAR(h.limiter().output().v, sv * 0.8, 1e-9);
+      EXPECT_NEAR(h.limiter().output().w, sw * 1.5, 1e-9);
+      h.feed(fwd(0.0, 0.0), 2.0);
+      for (int i = 0; i < 20; ++i) {
+        const auto c = h.feedOnce(fwd(sv, sw * 1.5));
+        EXPECT_LE(std::fabs(c.output.v * c.output.w), 1.2 + 1e-9);
+      }
+      EXPECT_NEAR(h.limiter().output().v, sv, 1e-9);
+      EXPECT_NEAR(h.limiter().output().w, sw * 1.2, 1e-9);
+    }
+  }
+}
+
+TEST(SafetyLimiter, ReversalUsesRemainingAccelerationTime)
+{
+  Limits l;
+  l.spike_rejection_enabled = false;
+  l.linear_deadband = 0.0;
+  SafetyLimiter limiter;
+  limiter.setLimits(l);
+  limiter.submit(fwd(0.01), 0.0);
+  limiter.update(0.0, 0.05);
+  limiter.submit(fwd(-0.3), 0.05);
+  const auto c = limiter.update(0.05, 0.05);
+  EXPECT_NEAR(c.output.v, -(0.05 - 0.01 / 1.5) * 0.8, 1e-9);
+}
+
+
+TEST(SafetyLimiter, ValidatesFiniteLimitsAndControlPeriod)
+{
+  Limits l;
+  EXPECT_TRUE(cmd_vel_safety::validateLimits(l, 20.0).empty());
+  l.cmd_timeout = 0.01;
+  EXPECT_FALSE(cmd_vel_safety::validateLimits(l, 20.0).empty());
+  l = Limits{};
+  l.max_lateral_accel = std::numeric_limits<double>::quiet_NaN();
+  EXPECT_FALSE(cmd_vel_safety::validateLimits(l, 20.0).empty());
+  l = Limits{};
+  l.max_linear_x = 0.0;
+  EXPECT_FALSE(cmd_vel_safety::validateLimits(l, 20.0).empty());
+  EXPECT_FALSE(cmd_vel_safety::validateLimits(Limits{}, 0.0).empty());
+}
+
+TEST(SafetyLimiter, RejectsEnvelopeThatCannotContainCurrentOutput)
+{
+  Limits l;
+  l.max_linear_x = 0.4;
+  EXPECT_FALSE(cmd_vel_safety::validateEnvelopeUpdate(l, {1.0, 0.0}).empty());
+  EXPECT_TRUE(cmd_vel_safety::validateEnvelopeUpdate(l, {0.3, 0.0}).empty());
+  l.max_lateral_accel = 0.1;
+  EXPECT_FALSE(cmd_vel_safety::validateEnvelopeUpdate(l, {0.3, 1.0}).empty());
+}
+
 int main(int argc, char ** argv)
 {
   ::testing::InitGoogleTest(&argc, argv);

@@ -34,6 +34,16 @@ std::string fmt(double v)
 double slew(
   double cur, double tgt, double a_accel, double a_decel, double dt, bool & limited)
 {
+  if (cur * tgt < 0.0 && a_decel > 0.0 && a_accel > 0.0) {
+    const double braking_time = std::fabs(cur) / a_decel;
+    if (dt <= braking_time) {
+      limited = true;
+      return cur - std::copysign(a_decel * dt, cur);
+    }
+    const double step = a_accel * (dt - braking_time);
+    limited = limited || step < std::fabs(tgt);
+    return std::copysign(std::min(std::fabs(tgt), step), tgt);
+  }
   const double diff = tgt - cur;
   if (diff == 0.0) {
     return tgt;
@@ -52,6 +62,79 @@ double slew(
 }
 
 }  // namespace
+
+std::string validateLimits(const Limits & l, double rate)
+{
+  const struct {const char * name; double value; double lo; double hi;} ranges[] = {
+    {"control_rate_hz", rate, 1.0, 1000.0},
+    {"max_linear_x", l.max_linear_x, 0.0, 10.0},
+    {"min_linear_x", l.min_linear_x, -10.0, 0.0},
+    {"max_angular_z", l.max_angular_z, 0.0, 20.0},
+    {"max_linear_accel", l.max_linear_accel, 0.01, 50.0},
+    {"max_linear_decel", l.max_linear_decel, 0.01, 50.0},
+    {"max_angular_accel", l.max_angular_accel, 0.01, 100.0},
+    {"max_angular_decel", l.max_angular_decel, 0.01, 100.0},
+    {"max_lateral_accel", l.max_lateral_accel, 0.0, 50.0},
+    {"nonholonomic_epsilon", l.nonholonomic_epsilon, 0.0, 1.0},
+    {"spike_linear_threshold", l.spike_linear_threshold, 0.0, 50.0},
+    {"spike_angular_threshold", l.spike_angular_threshold, 0.0, 100.0},
+    {"linear_deadband", l.linear_deadband, 0.0, 1.0},
+    {"angular_deadband", l.angular_deadband, 0.0, 1.0},
+    {"cmd_timeout", l.cmd_timeout, 0.01, 60.0},
+    {"emergency_decel_factor", l.emergency_decel_factor, 1.0, 20.0},
+  };
+  for (const auto & r : ranges) {
+    if (!std::isfinite(r.value) || r.value < r.lo || r.value > r.hi) {
+      return std::string(r.name) + " must be finite and inside its declared range";
+    }
+  }
+  if (l.max_linear_x <= 0.0) {return "max_linear_x must be > 0";}
+  if (l.spike_confirm_count < 1 || l.spike_confirm_count > 20) {
+    return "spike_confirm_count must be in [1, 20]";
+  }
+  if (l.max_consecutive_invalid < 1 || l.max_consecutive_invalid > 1000) {
+    return "max_consecutive_invalid must be in [1, 1000]";
+  }
+  if (l.cmd_timeout < 2.0 / rate) {
+    return "cmd_timeout must span at least two control cycles";
+  }
+  return "";
+}
+
+std::string validateEnvelopeUpdate(const Limits & l, const Velocity2D & current)
+{
+  if (!std::isfinite(current.v) || !std::isfinite(current.w) ||
+    current.v > l.max_linear_x || current.v < l.min_linear_x ||
+    std::fabs(current.w) > l.max_angular_z ||
+    (l.max_lateral_accel > 0.0 &&
+    std::fabs(current.v * current.w) > l.max_lateral_accel + 1e-12))
+  {
+    return "current output exceeds the new envelope: slow down or stop before tightening limits";
+  }
+  return "";
+}
+
+Velocity2D constrainCoupledStep(
+  const Velocity2D & previous, const Velocity2D & candidate, double lateral_limit)
+{
+  if (lateral_limit <= 0.0 || std::fabs(candidate.v * candidate.w) <= lateral_limit) {
+    return candidate;
+  }
+  const auto near_zero = [](double a, double b) {
+      if (a * b <= 0.0) {return 0.0;}
+      return std::fabs(a) < std::fabs(b) ? a : b;
+    };
+  Velocity2D result{near_zero(previous.v, candidate.v), near_zero(previous.w, candidate.w)};
+  // First take all reachable reductions. Give linear progress priority when
+  // both axes compete for the remaining lateral acceleration budget.
+  result.v = std::copysign(
+    result.w == 0.0 ? std::fabs(candidate.v) :
+    std::min(std::fabs(candidate.v), lateral_limit / std::fabs(result.w)), candidate.v);
+  result.w = std::copysign(
+    result.v == 0.0 ? std::fabs(candidate.w) :
+    std::min(std::fabs(candidate.w), lateral_limit / std::fabs(result.v)), candidate.w);
+  return result;
+}
 
 ValidationResult SafetyLimiter::submit(const Twist6 & raw, double stamp)
 {
@@ -287,10 +370,17 @@ CycleResult SafetyLimiter::update(double now, double dt)
   } else {
     const double f = emergency ? std::max(1.0, limits_.emergency_decel_factor) : 1.0;
     bool limited = false;
+    const auto previous = output_;
     output_.v = slew(
       output_.v, tgt.v, limits_.max_linear_accel, limits_.max_linear_decel * f, dt, limited);
     output_.w = slew(
       output_.w, tgt.w, limits_.max_angular_accel, limits_.max_angular_decel * f, dt, limited);
+    const auto coupled = constrainCoupledStep(previous, output_, limits_.max_lateral_accel);
+    if (coupled.v != output_.v || coupled.w != output_.w) {
+      c.flags |= FLAG_LATERAL_ACCEL_LIMITED;
+      c.reasons.push_back("output transition constrained by lateral acceleration budget");
+      output_ = coupled;
+    }
     if (limited) {
       c.flags |= FLAG_ACCEL_LIMITED;
       c.reasons.push_back("acceleration limited towards target");
