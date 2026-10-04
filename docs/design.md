@@ -431,9 +431,15 @@ ros2 topic pub /e_stop std_msgs/msg/Bool '{data: true}' \
 
 ```
 cmd_vel_safety_ws/
-├── 设计大纲.md                     ← 本文件
 ├── README.md                       ← 构建与运行说明
-├── docs/scenario.md                ← bag 场景逐段标注与预期结果
+├── LICENSE                         ← Apache-2.0
+├── CONTRIBUTING.md                 ← 开发与验证约定
+├── docs/
+│   ├── design.md                   ← 本文件
+│   ├── scenario.md                 ← bag 场景逐段标注与预期结果
+│   ├── plans/                      ← 开发方案
+│   └── evidence/                   ← 实际运行图、视频及数据
+├── tools/capture_demo.py            ← 录屏复现工具
 └── src/
     ├── cmd_vel_safety_msgs/        ← 接口包（与实现解耦）
     │   ├── CMakeLists.txt
@@ -487,7 +493,7 @@ cmd_vel_safety_ws/
 | `check_bag.py` | `PASSED: all safety invariants hold for this run`（718 条输出消息） |
 | 计数器自证 | `received=320`（与 bag 消息数一致）、`rejected=6`、`modified=40`（恰为 `ly=0.4` 的 40 帧） |
 
-逐段实测数值见 [docs/scenario.md](docs/scenario.md)。其中三项值得强调：
+逐段实测数值见 [docs/scenario.md](scenario.md)。其中三项值得强调：
 
 - 第 230 帧的单帧毛刺 `lx=-2.2` 在输出上**完全不可见**，而第 190 帧起持续的 `lx=2.5` 被正常采纳后限幅 —— §6.3 的候选—确认机制达到了设计目的。
 - 第 190–219 段角速度最终为 **1.200** 而非限幅上限 1.500，是 `max_angular_z` 与向心加速度耦合限幅两级串联的结果；单独看任一参数都无法解释该数值。
@@ -506,4 +512,4 @@ cmd_vel_safety_ws/
 - `publish_rate_hz` 动态修改重建监控定时器；非法频率、窗口与阈值被拒绝。
 - `SafetyReport.header.stamp` 与控制计算使用同一次时钟采样。
 - 新录制使用仿真时间；严格审计独立检查原始输入间隔、控制报告连续性以及输出/报告一致性。参考 bag 比较可证明原始输入完整性。
-- 本轮验证记录与旧数据的区别见 [场景文档第 7 节](docs/scenario.md#7-安全修正后的验证)。
+- 本轮验证记录与旧数据的区别见 [场景文档第 7 节](scenario.md#7-安全修正后的验证)。

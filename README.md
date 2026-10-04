@@ -50,7 +50,7 @@ git clone https://github.com/Irsatyn/cmd_vel_safety.git
 cd cmd_vel_safety
 ```
 
-仓库根目录就是 colcon 工作空间。后续构建、测试和配置命令均在此目录执行。
+仓库根目录就是 colcon 工作空间。后续构建、测试和配置命令均在此目录执行。GitHub 上的源码包含两个完整 ROS 包及其消息定义、Launch、配置和测试数据；下载 ZIP 后解压到任意工作目录，也可从该目录按下述步骤编译。Git Commit History 需要通过 Git 克隆查看。
 
 ### 2. 安装依赖
 
@@ -354,18 +354,25 @@ cmd_vel_safety/
 ├── .gitattributes
 ├── .gitignore
 ├── README.md
-├── PROJECT_OUTLINE.md              架构与安全规则设计
+├── LICENSE                        Apache-2.0 许可证
+├── CONTRIBUTING.md                开发与验证约定
 ├── tools/capture_demo.py           完整演示录屏与证据采集
 ├── docs/
+│   ├── design.md                   架构与安全规则设计
 │   ├── scenario.md                 场景标注与历史实测结果
 │   ├── verification.md             安全修正验收记录
+│   ├── plans/                      开发方案与交付清单
 │   └── evidence/                   完整 MP4、运行截图与数据
 └── src/
     ├── cmd_vel_safety_msgs/        自定义消息接口包
+    │   ├── CMakeLists.txt
+    │   ├── package.xml
     │   └── msg/
     │       ├── SafetyReport.msg
     │       └── MotionState.msg
     └── cmd_vel_safety/             节点、算法与工具
+        ├── CMakeLists.txt
+        ├── package.xml
         ├── include/cmd_vel_safety/safety_limiter.hpp
         ├── src/
         │   ├── safety_limiter.cpp
@@ -375,20 +382,21 @@ cmd_vel_safety/
         ├── launch/                启动、回放、录制和图形演示
         ├── config/params.yaml
         ├── scripts/check_bag.py
-        ├── test/test_safety_limiter.cpp
+        ├── test/                 算法、校验器与实进程回归
         └── bags/cmd_vel/          随仓库保留的测试数据
 ```
 
-`build/`、`install/` 和 `log/` 由 colcon 生成，已通过 `.gitignore` 排除。源码目录内的测试 bag 随仓库版本管理。
+`src/` 按 ROS 2 包组织，`docs/` 保存项目文档与证据，`tools/` 保存开发辅助工具。`build/`、`install/` 和 `log/` 由 colcon 生成，已通过 `.gitignore` 排除；它们不属于可移植源码，下载后重新构建即可生成。源码目录内的测试 bag 随仓库版本管理。
 
 ## 开发与文档
 
-- [设计大纲](PROJECT_OUTLINE.md)：架构、消息、参数、安全流水线与异常处理。
+- [系统设计](docs/design.md)：架构、消息、参数、安全流水线与异常处理。
 - [场景与实测记录](docs/scenario.md)：测试 bag 逐段标注、干预结果与验证范围。
+- [贡献说明](CONTRIBUTING.md)：目录约定、构建及提交验证。
 - [Issues](https://github.com/Irsatyn/cmd_vel_safety/issues)：问题反馈与改进建议。
 
 提交算法修改时，请补充对应边界场景并运行构建与测试。问题反馈请附 ROS 版本、运行命令、参数文件以及相关日志或录制数据。
 
 ## 许可证
 
-两个 ROS 包的 `package.xml` 均声明使用 **Apache-2.0** 许可证。
+项目采用 **Apache-2.0** 许可证，完整文本见 [LICENSE](LICENSE)。两个 ROS 包的 `package.xml` 声明与之保持一致。

@@ -8,7 +8,7 @@
 
 **Tech Stack:** ROS 2 Humble、C++17、ament_cmake、gtest、Python 3、rosbag2、launch_testing。
 
-**Spec:** 本轮用户需求及本文件“拟确认的行为决策”；现有架构参考 `../../../PROJECT_OUTLINE.md`。冲突之处以用户确认后的本方案为准。
+**Spec:** 本轮用户需求及本文件“拟确认的行为决策”；现有架构参考 [系统设计](../design.md)。冲突之处以用户确认后的本方案为准。
 
 ## Global Constraints
 
@@ -147,7 +147,7 @@
 
 **Files:**
 - Modify: `README.md`
-- Modify: `PROJECT_OUTLINE.md`
+- Modify: `docs/design.md`
 - Modify: `docs/scenario.md`
 
 - [x] 说明动态收紧拒绝策略、耦合输出优先级、监控来源和新校验命令。
