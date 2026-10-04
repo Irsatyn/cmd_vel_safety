@@ -1,118 +1,206 @@
-# cmd_vel_safety — 机器人速度指令处理与状态监控系统
+# cmd_vel_safety
 
-ROS 2 Humble / C++17。在不可信的 `/cmd_vel` 生产者与底盘之间插入一道安全网关，
-并独立监控运动状态与链路健康。
+基于 **ROS 2 Humble / C++17** 的差速机器人速度指令安全网关与运动状态监控系统。
 
-- **[PROJECT_OUTLINE.md](PROJECT_OUTLINE.md)** — 设计文档（架构、消息、参数、安全流水线、异常矩阵）
-- **[docs/scenario.md](docs/scenario.md)** — 给定 rosbag 的逐段标注与**实测结果**
+项目在上游 `/cmd_vel` 与底盘之间加入 `velocity_guard`，对原始速度指令进行校验、限幅和加减速限制，并在指令超时、持续非法输入或急停时输出停车指令。配套的虚拟底盘与独立监控节点支持无硬件演示、rosbag 回放和离线验证。
 
----
+## 功能
 
-## 1. 数据流
+- **输入校验**：拒绝 NaN / Inf，识别不可执行自由度，通过后续帧确认大幅跳变，过滤孤立毛刺。
+- **速度处理**：前进与倒车独立限幅、角速度限幅、横向加速度耦合限制、死区处理及加减速限制。
+- **失效处理**：指令超时刹车、持续非法输入安全保持、急停状态控制；虚拟底盘具有独立看门狗。
+- **状态监控**：运动状态分类、指令频率、断流、里程计新鲜度和速度跟踪误差监控。
+- **可追溯性**：逐周期发布原始输入、有效目标、实际输出、干预标志和原因。
+- **验证工具**：内置测试 rosbag、19 项算法单元测试、全链路录制及离线校验脚本。
 
-```
-rosbag / teleop ──/cmd_vel──► velocity_guard ──/cmd_vel_safe──► virtual_robot ──/odom──┐
-                       ▲            │                                                  │
-                  /e_stop           └──/velocity_guard/report──► motion_state_monitor ◄─┘
-                                                                        │
-                                   /robot_motion_state  /robot_status  /diagnostics
-```
+## 目录
 
-| 节点                   | 职责                                                    |
-| ---------------------- | ------------------------------------------------------- |
-| `velocity_guard`       | 校验、限幅、斜率限制、失效安全。固定 20 Hz 输出         |
-| `motion_state_monitor` | 运动状态分类与链路健康监控。不在控制路径上              |
-| `virtual_robot`        | 差速底盘模型（含一阶电机滞后 + 独立看门狗），闭合数据流 |
+- [环境要求](#环境要求)
+- [快速开始](#快速开始)
+- [系统架构](#系统架构)
+- [运行方式](#运行方式)
+- [参数配置](#参数配置)
+- [急停与 QoS](#急停与-qos)
+- [测试与验证](#测试与验证)
+- [常见问题](#常见问题)
+- [项目结构](#项目结构)
+- [开发与文档](#开发与文档)
+- [许可证](#许可证)
 
-## 2. 构建
+## 环境要求
+
+| 项目 | 要求 |
+| --- | --- |
+| 操作系统 | Ubuntu 22.04；WSL2 环境的通信说明见常见问题 |
+| ROS | ROS 2 Humble，已配置软件源并安装 |
+| 构建工具 | 支持 C++17 的编译器、CMake、colcon、rosdep |
+| 脚本运行 | Python 3；包依赖通过 rosdep 安装 |
+| 图形演示 | 可用的图形桌面或 WSLg，以及 rqt_graph / rqt_plot |
+
+## 快速开始
+
+### 1. 克隆仓库
 
 ```bash
-cd cmd_vel_safety_ws
+git clone https://github.com/Irsatyn/cmd_vel_safety.git
+cd cmd_vel_safety
+```
+
+仓库根目录就是 colcon 工作空间。后续构建、测试和配置命令均在此目录执行。
+
+### 2. 安装依赖
+
+```bash
 source /opt/ros/humble/setup.bash
+sudo apt update
+sudo apt install python3-colcon-common-extensions python3-rosdep
+```
+
+如果这台机器尚未初始化 rosdep，先执行一次 `sudo rosdep init`。已初始化的机器直接执行：
+
+```bash
+rosdep update
+rosdep install --from-paths src --ignore-src --rosdistro humble -r -y
+```
+
+### 3. 构建并加载环境
+
+```bash
 colcon build --symlink-install
 source install/setup.bash
 ```
 
-## 3. 运行
+每个新终端都需要加载 ROS 与工作空间环境。可在仓库根目录执行：
 
 ```bash
-# 回放给定 bag，一条命令跑完全部异常场景
-ros2 launch cmd_vel_safety replay_bag.launch.py
-
-# 放慢观察 / 循环回放（循环会触发时钟回跳处理）
-ros2 launch cmd_vel_safety replay_bag.launch.py rate:=0.3
-ros2 launch cmd_vel_safety replay_bag.launch.py loop:=true
-
-# 回放并录制全链路，产出可离线核查的 bag
-ros2 launch cmd_vel_safety record_bag.launch.py output:=/tmp/run1
-
-# 带 rqt_graph + rqt_plot 的一键演示（需要图形界面）
-ros2 launch cmd_vel_safety demo.launch.py
-
-# 接真实上游（关掉内置底盘模型）
-ros2 launch cmd_vel_safety bringup.launch.py enable_virtual_robot:=false
+source /opt/ros/humble/setup.bash
+source install/setup.bash
 ```
 
-人可读状态：
+### 4. 回放演示数据
+
+```bash
+ros2 launch cmd_vel_safety replay_bag.launch.py
+```
+
+该命令启动安全网关、虚拟底盘和监控节点，并回放仓库内的 `/cmd_vel` 测试数据。回放使用 `/clock` 驱动节点的仿真时间。
+
+在另一个已加载环境的终端中查看状态：
 
 ```bash
 ros2 topic echo /robot_status
-# [FORWARD 2.40s] v=+0.30 m/s  w=+0.00 rad/s  R=inf  | dist=1.85 m
-# | cmd_in=10.00 Hz safe_out=20.00 Hz | interventions=14 | OK: nominal
 ```
 
-## 4. 验证
+示例状态文本：
 
-```bash
-# 单元测试：19 项，覆盖每条规则的边界行为
-colcon test --packages-select cmd_vel_safety
-colcon test-result --verbose
-# 或直接运行
-./build/cmd_vel_safety/test_safety_limiter
-
-# 离线断言录制结果满足全部安全不变量
-ros2 run cmd_vel_safety check_bag.py /tmp/run1
+```text
+[FORWARD 2.40s] v=+0.30 m/s  w=+0.00 rad/s  R=inf  | dist=1.85 m | cmd_in=10.00 Hz safe_out=20.00 Hz | interventions=14 | OK: nominal
 ```
 
-实测结论见 [docs/scenario.md](docs/scenario.md)。11 条安全规则全部被实测覆盖：
-回放给定 bag 覆盖 8 条，死区 / 持续非法输入 / 急停 3 条由在线测试覆盖。
+## 系统架构
 
-## 5. 急停
-
-`/e_stop` 订阅端使用 **TransientLocal** QoS，这样「急停已置位时才启动的网关」
-依然会保持停止 —— 避免「重启节点 = 解除急停」。
-
-代价是一个 QoS 兼容陷阱：**Volatile 发布者与 TransientLocal 订阅者不兼容，
-DDS 会静默地什么都不投递**。裸 `ros2 topic pub` 默认就是 Volatile，因此必须
-显式指定：
-
-```bash
-# 正确：显式 transient_local，并保持发布者存活（不要加 -1）
-ros2 topic pub /e_stop std_msgs/msg/Bool '{data: true}' \
-  --qos-durability transient_local --qos-reliability reliable
-
-# 解除
-ros2 topic pub /e_stop std_msgs/msg/Bool '{data: false}' \
-  --qos-durability transient_local --qos-reliability reliable
+```text
+上游 / rosbag ── /cmd_vel ──► velocity_guard ── /cmd_vel_safe ──► virtual_robot
+                                  ▲      │                             │
+                               /e_stop   │ /velocity_guard/report      │ /odom
+                                         ▼                             ▼
+                                          motion_state_monitor
+                                            │          │          │
+                                 /robot_motion_state /robot_status /diagnostics
 ```
 
-若上游无法提供 transient_local，可设 `estop_qos_durability:=volatile`
-接受任意发布者，代价是失去「启动即保持急停」的能力。
+监控节点同时订阅 `/cmd_vel`、`/cmd_vel_safe`、安全报告和里程计，独立测量通信频率并比较指令与实际速度。
 
-## 6. rqt
+| 节点 | 默认频率 | 职责 |
+| --- | --- | --- |
+| `velocity_guard` | 20 Hz | 校验输入、处理有效目标、定时发布安全速度与报告 |
+| `virtual_robot` | 50 Hz | 模拟差速底盘与电机滞后，发布里程计和 TF |
+| `motion_state_monitor` | 5 Hz | 分类运动状态，发布结构化状态、文字状态和诊断 |
+
+### 主要接口
+
+| Topic | 消息类型 | 用途 |
+| --- | --- | --- |
+| `/cmd_vel` | `geometry_msgs/msg/Twist` | 原始速度输入 |
+| `/e_stop` | `std_msgs/msg/Bool` | 急停置位 / 解除 |
+| `/cmd_vel_safe` | `geometry_msgs/msg/Twist` | 底盘执行的速度指令 |
+| `/velocity_guard/report` | `cmd_vel_safety_msgs/msg/SafetyReport` | 逐周期安全处理记录 |
+| `/odom` | `nav_msgs/msg/Odometry` | 实际或模拟的运动反馈 |
+| `/robot_motion_state` | `cmd_vel_safety_msgs/msg/MotionState` | 运动状态与链路健康 |
+| `/robot_status` | `std_msgs/msg/String` | 人可读状态 |
+| `/diagnostics` | `diagnostic_msgs/msg/DiagnosticArray` | ROS 诊断信息 |
+
+差速底盘输出仅使用 `linear.x` 与 `angular.z`。安全报告包含同一控制周期对应的 `input_cmd`、`target_cmd`、`output_cmd` 和节点时钟时间戳，便于定位干预原因与校验输出变化。
+
+## 运行方式
+
+以下命令按用途独立运行。
+
+### 回放与图形演示
 
 ```bash
-rqt_graph        # 核对三节点 / 8 个 topic 的单向数据流
+# 放慢回放
+ros2 launch cmd_vel_safety replay_bag.launch.py rate:=0.3
+
+# 循环回放；节点会处理仿真时钟回跳
+ros2 launch cmd_vel_safety replay_bag.launch.py loop:=true
+
+# 回放并打开 rqt_graph 与 rqt_plot，需要图形界面
+ros2 launch cmd_vel_safety demo.launch.py
+```
+
+也可以在运行中的系统上单独打开可视化工具：
+
+```bash
+rqt_graph
 rqt_plot /cmd_vel/linear/x /cmd_vel_safe/linear/x /velocity_guard/report/flags
-rqt_runtime_monitor   # 读 /diagnostics，OK/WARN/ERROR 链路健康
-rqt_reconfigure       # 运行时改限幅参数，立即影响当前指令
-rqt_console           # 分级日志（超限告警已限流）
 ```
 
-`rqt_plot` 的三条曲线是核心演示画面：原始输入含毛刺与超限，处理后输出平滑且
-在限内，`flags` 位掩码标出每次干预的时刻与类型。
+### 录制全链路
 
-运行时调参示例（限幅在输出侧生效，改完立刻作用于当前指令）：
+```bash
+ros2 launch cmd_vel_safety record_bag.launch.py output:=/tmp/cmd_vel_safety_run
+```
+
+启动脚本会先开始录制，再回放数据。回放完成后按 `Ctrl+C` 停止 launch，让录制进程关闭并完成 bag 写入。每次录制使用新的输出目录。
+
+### 接入实时指令
+
+```bash
+# 使用虚拟底盘，接收实时 /cmd_vel
+ros2 launch cmd_vel_safety bringup.launch.py
+
+# 使用真实底盘，关闭虚拟底盘
+ros2 launch cmd_vel_safety bringup.launch.py enable_virtual_robot:=false
+```
+
+真实底盘应订阅 `/cmd_vel_safe`，并通过 `/odom` 提供运动反馈。网关输出的是速度指令，实际停车行为由底盘执行；底盘侧仍应具备自己的指令超时处理。
+
+## 参数配置
+
+默认配置位于 [src/cmd_vel_safety/config/params.yaml](src/cmd_vel_safety/config/params.yaml)。
+
+| 参数 | 默认值 | 含义 |
+| --- | --- | --- |
+| `control_rate_hz` | `20.0` | 网关输出频率，Hz |
+| `max_linear_x` / `min_linear_x` | `1.0` / `-0.3` | 前进 / 倒车速度边界，m/s |
+| `max_angular_z` | `1.5` | 角速度幅值上限，rad/s |
+| `max_linear_accel` / `max_linear_decel` | `0.8` / `1.5` | 线加速 / 减速上限，m/s² |
+| `max_angular_accel` / `max_angular_decel` | `2.0` / `3.0` | 角加速 / 减速上限，rad/s² |
+| `max_lateral_accel` | `1.2` | 目标速度的横向加速度上限 `abs(v * ω)`，m/s² |
+| `cmd_timeout` | `0.5` | 原始指令超时时间，s |
+| `max_consecutive_invalid` | `5` | 进入非法输入安全保持的连续帧数 |
+| `emergency_decel_factor` | `2.0` | 超时 / 安全保持时的减速倍率 |
+| `estop_hard_stop` | `true` | 急停时直接将输出指令归零 |
+
+使用自定义配置文件启动：
+
+```bash
+ros2 launch cmd_vel_safety bringup.launch.py \
+  params_file:="$(pwd)/src/cmd_vel_safety/config/params.yaml"
+```
+
+支持运行时调整的限幅参数可直接修改：
 
 ```bash
 ros2 param set /velocity_guard max_linear_x 0.4
@@ -120,51 +208,142 @@ ros2 param list /velocity_guard
 ros2 param describe /velocity_guard max_lateral_accel
 ```
 
-非法参数会被拒绝并给出原因，节点保留原有配置继续运行：
+运行时参数更新会校验范围和跨字段约束。例如，`cmd_timeout` 必须至少覆盖两个控制周期。被拒绝的更新会保留原配置。
+
+Topic 名称和 QoS 参数为只读启动参数，修改 YAML 后需要重启节点。
+
+## 急停与 QoS
+
+`/e_stop` 默认使用 **Reliable + TransientLocal** 订阅。匹配的发布者可以保存急停状态，让晚启动的网关获取已经置位的急停。
+
+**Volatile 发布者无法匹配 TransientLocal 订阅者。** 普通 `ros2 topic pub` 默认使用 Volatile，需要显式设置 QoS：
 
 ```bash
-$ ros2 param set /velocity_guard cmd_timeout 0.01
-Setting parameter failed: cmd_timeout must span at least two control cycles, \
-otherwise the watchdog trips on normal jitter
+# 置位急停，保持发布者运行
+ros2 topic pub /e_stop std_msgs/msg/Bool '{data: true}' \
+  --qos-durability transient_local --qos-reliability reliable
 ```
 
-## 7. 本机环境注意事项（WSL2）
-
-本机为多网卡环境（VPN 风格的 `eth0` 26.85.197.31/8 加上 `eth2`），**默认的
-FastDDS 在此无法完成发现** —— 连 ROS 自带的 `talker`/`listener` 在两个独立进程
-间也收不到消息。CycloneDDS 正常：
+解除前先用 `Ctrl+C` 停止上面的发布者，再执行：
 
 ```bash
+ros2 topic pub /e_stop std_msgs/msg/Bool '{data: false}' \
+  --qos-durability transient_local --qos-reliability reliable
+```
+
+演示时使用单个急停发布者，避免多个发布者持续发送相反状态。急停解除会清空目标速度，需要新的有效速度指令才能恢复运动。
+
+TransientLocal 的历史由发布者保存。保持发布者存活，才能让之后启动的网关获取保留状态；使用 `--once` 后退出不能提供这一保证。
+
+如果上游只能发布 Volatile 消息，可在 YAML 中将 `velocity_guard.ros__parameters.estop_qos_durability` 改为 `"volatile"`，通过 `params_file` 加载并重启。此时仍要求 Reliable 发布者，且无法获取启动前的历史急停状态。
+
+## 测试与验证
+
+### 算法单元测试
+
+```bash
+colcon test --packages-select cmd_vel_safety
+colcon test-result --verbose
+```
+
+也可直接运行构建后的测试程序：
+
+```bash
+./build/cmd_vel_safety/test_safety_limiter
+```
+
+19 项测试覆盖输入校验、毛刺确认、限幅、加减速、超时、急停及状态重置等行为。核心算法独立于 `rclcpp`，测试通过显式输入时间和控制周期验证结果。
+
+### 录制结果离线校验
+
+完成全链路录制后，在仓库根目录执行：
+
+```bash
+ros2 run cmd_vel_safety check_bag.py /tmp/cmd_vel_safety_run \
+  --params "$(pwd)/src/cmd_vel_safety/config/params.yaml"
+```
+
+`--params` 应指向本次运行使用的参数文件。脚本检查输出有限性、速度边界、横向加速度、不可执行自由度、输出连续性与看门狗停车行为。
+
+连续性校验使用安全报告的 `header.stamp` 与 `output_cmd`，避免将节点仿真时间上的速度变化除以 bag 接收侧的时间间隔。该检查采用紧急减速预算和测量容差；运行时调参或硬急停场景需要结合实际配置单独分析。
+
+### 场景覆盖
+
+仓库内的 bag 包含 320 帧原始指令，时长约 35.9 s，通常以 10 Hz 发布，覆盖正常运动、倒车、持续超限、NaN / Inf、孤立毛刺、不可执行自由度和断流。
+
+历史验证记录见 [docs/scenario.md](docs/scenario.md)：回放覆盖 11 类安全标志中的 8 类；死区、持续非法输入和急停另有在线测试记录。该文档保存既有实测数据，新环境的结果请通过上述命令复核。
+
+## 常见问题
+
+### WSL2 / 多网卡环境下节点收不到消息
+
+项目开发环境曾出现默认 FastDDS 下多进程无法通信的问题，ROS 自带的 talker / listener 也受影响；切换 CycloneDDS 后恢复通信。这是特定环境的记录，是否需要切换应根据当前环境判断。
+
+可安装 CycloneDDS 的 RMW 实现后重试：
+
+```bash
+sudo apt install ros-humble-rmw-cyclonedds-cpp
+ros2 daemon stop
 export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
 ```
 
-与本项目代码无关，但在本机跑多进程时需要。另外 `ros2` CLI 守护进程会缓存过期
-的图信息，切换 `ROS_DOMAIN_ID` 后 `ros2 node/topic list` 可能报告错误结果，先
-`ros2 daemon stop`。
+所有参与运行的终端使用一致的 RMW 配置，然后重新启动节点和回放进程。切换 RMW 或 `ROS_DOMAIN_ID` 后，停止旧的 ROS CLI daemon 可避免沿用旧配置。
 
-## 8. 目录结构
+### 急停消息已发布，网关却没有响应
 
+检查双方 QoS，尤其是 durability 和 reliability：
+
+```bash
+ros2 topic info /e_stop --verbose
 ```
-cmd_vel_safety_ws/
-├── PROJECT_OUTLINE.md          设计文档
-├── README.md                   本文件
-├── docs/scenario.md            bag 场景标注 + 实测结果
+
+默认急停订阅要求 Reliable + TransientLocal，发布命令见 [急停与 QoS](#急停与-qos)。
+
+### 无法启动 rqt 图形窗口
+
+`demo.launch.py` 需要图形界面。无桌面环境时使用 `replay_bag.launch.py`，通过 `/robot_status`、`/velocity_guard/report` 和离线录制检查运行结果。
+
+`ros2 node info` 可核对发布与订阅声明；是否实际收到消息，还需结合 `ros2 topic echo`、频率观测和录制数据判断。
+
+## 项目结构
+
+```text
+cmd_vel_safety/
+├── .gitattributes
+├── .gitignore
+├── README.md
+├── PROJECT_OUTLINE.md              架构与安全规则设计
+├── docs/
+│   └── scenario.md                 场景标注与历史实测结果
 └── src/
-    ├── cmd_vel_safety_msgs/    接口包
-    │   └── msg/{SafetyReport,MotionState}.msg
-    └── cmd_vel_safety/
+    ├── cmd_vel_safety_msgs/        自定义消息接口包
+    │   └── msg/
+    │       ├── SafetyReport.msg
+    │       └── MotionState.msg
+    └── cmd_vel_safety/             节点、算法与工具
         ├── include/cmd_vel_safety/safety_limiter.hpp
-        ├── src/safety_limiter.cpp          纯算法，不依赖 rclcpp
-        ├── src/velocity_guard_node.cpp
-        ├── src/motion_state_monitor_node.cpp
-        ├── src/virtual_robot_node.cpp
-        ├── launch/{bringup,replay_bag,record_bag,demo}.launch.py
+        ├── src/
+        │   ├── safety_limiter.cpp
+        │   ├── velocity_guard_node.cpp
+        │   ├── motion_state_monitor_node.cpp
+        │   └── virtual_robot_node.cpp
+        ├── launch/                启动、回放、录制和图形演示
         ├── config/params.yaml
-        ├── scripts/check_bag.py            离线不变量校验
-        ├── test/test_safety_limiter.cpp    19 项单元测试
-        └── bags/cmd_vel/                   给定的测试数据
+        ├── scripts/check_bag.py
+        ├── test/test_safety_limiter.cpp
+        └── bags/cmd_vel/          随仓库保留的测试数据
 ```
 
-安全算法与 ROS 解耦是有意的：`safety_limiter` 编译为不含 `rclcpp` 依赖的静态库，
-因此流水线逻辑可以用 gtest 做确定性测试（给定输入序列与 dt，断言输出），不受
-ROS 图与调度抖动影响。
+`build/`、`install/` 和 `log/` 由 colcon 生成，已通过 `.gitignore` 排除。源码目录内的测试 bag 随仓库版本管理。
+
+## 开发与文档
+
+- [设计大纲](PROJECT_OUTLINE.md)：架构、消息、参数、安全流水线与异常处理。
+- [场景与实测记录](docs/scenario.md)：测试 bag 逐段标注、干预结果与验证范围。
+- [Issues](https://github.com/Irsatyn/cmd_vel_safety/issues)：问题反馈与改进建议。
+
+提交算法修改时，请补充对应边界场景并运行构建与测试。问题反馈请附 ROS 版本、运行命令、参数文件以及相关日志或录制数据。
+
+## 许可证
+
+两个 ROS 包的 `package.xml` 均声明使用 **Apache-2.0** 许可证。
